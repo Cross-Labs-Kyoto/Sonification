@@ -1,3 +1,9 @@
+# Custom rules
+*.wav
+*.todo
+.python-version
+Data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
