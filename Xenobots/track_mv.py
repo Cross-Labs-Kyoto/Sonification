@@ -1,9 +1,23 @@
 #!/usr/bin/env python3
-from utils import get_contours, get_rotated_bbox
 import numpy as np
 import cv2 as cv
 
+from utils import MvTracker
 
+
+colors = [
+    (40, 42, 54),
+    (248, 248, 242),
+    (139, 233, 253),
+    (80, 250, 123),
+    (255, 184, 108),
+    (255, 121, 198),
+    (68, 71, 90),
+    (189, 147, 249),
+    (255, 85, 85),
+    (241, 250, 140),
+    (98, 114, 164)
+]
 # Set the threshold for canny edge detection
 thres = 40
 
@@ -18,47 +32,23 @@ try:
     # Find the frame center
     vid_c = np.array(( 50 + vid_w // 2, vid_h // 2))
     max_dist = 560
+
+    # Instantiate a movement tracker
+    tracker = MvTracker(vid_w, vid_h, max_dist, offset_x=50)
     while True:
         ret, frame = vc.read()
         if not ret:
             break
 
-        # Find contours
-        contours, hierarchy = get_contours(frame, thres)
+        # Track objects
+        tracker.track(frame)
 
-        # Get the rotated rectangles and associated bounding boxes
-        rrects = []
-        bboxes = []
-        scores = []
-        for i, c in enumerate(contours):
-            # Find minimum enveloping rotated rectangle
-            r_rect = get_rotated_bbox(c)
-
-            # Compute distance to center of frame
-            dist = np.linalg.norm(vid_c - r_rect.center)
-
-            # Avoid detecting the edges of the petri dish or small foreign bodies
-            if dist > max_dist or np.any(np.array(r_rect.size) < 5):
+        for tid, tracks in tracker._trajectories.items():
+            l = len(tracks)
+            if l < 2:
                 continue
-
-            # Store all information related to the rotated rectangle for later filtering
-            rrects.append(r_rect)
-            bboxes.append(r_rect.boundingRect())  # In opencv a rectangle is represented by (x, y, w, h)
-            scores.append(r_rect.size[0] * r_rect.size[1])
-
-        if len(bboxes) != 0:
-            # Non-maximum suppression to keep only non-overlapping rotated rectangles
-            indices = cv.dnn.NMSBoxes(np.array(bboxes), np.array(scores), score_threshold=0, nms_threshold=0.5)
-
-            # TODO: Since we are already tracking all the xenobots, we might as well ditch the tracker and build the trajectory ourself
-            # TODO: Dead Reckoning based on position, distance and speed might work well enough
-            # TODO: Maybe even just optical flow?
-
-            for idx in indices:
-                # Draw the rotated rectangles
-                box = np.intp(cv.boxPoints(rrects[idx]))
-                cv.drawContours(frame, [box], 0, (0, 255, 0))
-
+            for idx in range(1, l):
+                cv.line(frame, np.intp(tracks[idx - 1].center), np.intp(tracks[idx].center), colors[tid%len(colors)][::-1], 2)
 
         cv.imshow('Debug', frame)
         cv.pollKey()
