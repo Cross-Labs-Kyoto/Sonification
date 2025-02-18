@@ -44,10 +44,7 @@ try:
         tracker.track(frame)
 
         for tid, tracks in tracker._trajectories.items():
-            l = len(tracks)
-            if l < 2:
-                continue
-            for idx in range(1, l):
+            for idx in range(1, len(tracks)):
                 cv.line(frame, np.intp(tracks[idx - 1].center), np.intp(tracks[idx].center), colors[tid%len(colors)][::-1], 2)
 
         cv.imshow('Debug', frame)
