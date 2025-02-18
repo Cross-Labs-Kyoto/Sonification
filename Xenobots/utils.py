@@ -127,19 +127,22 @@ class MvTracker(object):
             assigned_t = set()  # Tracked objects that have been assigned a detected object
             if len(self._trajectories) > 0:
                 tracked_ids = list(self._trajectories.keys())
-                dists = np.full((len(rrects), len(self._trajectories)), np.inf)
 
-                # Compute the distance between all tracked objects and all detected objects
                 for ridx, rect in enumerate(rrects):
+                    # Compute the distance between all tracked objects and all detected objects
+                    dists = np.full((len(self._trajectories),), np.inf)
                     for tidx, tid in enumerate(tracked_ids):
+                        if tid in assigned_t:
+                            continue
                         tracked_loc = self._trajectories[tid][-1]  # Get the last known position in the trajectory
-                        dists[ridx, tidx] = np.linalg.norm((tracked_loc.center[0] - rect.center[0], tracked_loc.center[1] - rect.center[1]))
+                        dists[tidx] = np.linalg.norm((tracked_loc.center[0] - rect.center[0], tracked_loc.center[1] - rect.center[1]))
 
-                for ridx, rect in enumerate(rrects):
-                    min_tidx = dists[ridx].argmin()
-                    d = dists[ridx].min()
-                    if d > 30:
+                    # If there are no tracked objects close, just move on
+                    if dists.min() > 30:
                         continue
+
+                    # Assign the detected object to the closest tracked object
+                    min_tidx = dists.argmin()
                     tid = tracked_ids[min_tidx]
                     self._trajectories[tid].append(rect)
                     assigned_d.add(ridx)
