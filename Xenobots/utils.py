@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import numpy as np
 import cv2 as cv
 
 
@@ -39,3 +40,116 @@ def get_rotated_bbox(contour):
 
 def get_tl_br(rect):
     return (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3])
+
+
+class MvTracker(object):
+    """Defines an edge detection-based tracker for moving objects."""
+
+    def __init__(self, width, height, max_dist, offset_x=0, offset_y=0, canny_thres=40, nms_thres=0.3):
+        """Initializes attributes required for tracking objects.
+
+        Parameters
+        ----------
+        width: int
+            The width of a frame in pixels.
+
+        height: int
+            The height of a frame in pixels.
+
+        max_dist: int
+            If detected object is further than `max_dist` from the frame center, it will be ignored.
+
+        offset_x: int
+            The amount of pixels by which to offset the frame center along the X axis.
+
+        offset_y: int
+            The amount of pixels by which to offset the frame center along the Y axis.
+
+        canny_thres: int
+            The threshold for the hysteresis procedure part of the Canny edge detector.
+
+        nms_thres: float
+            The percentage of overlap between shapes for the non-maximum suppression algorithm to keep only the biggest bounding box.
+
+        """
+        super().__init__()
+
+        self._canny_thres = canny_thres
+        self._nms_thres = nms_thres
+        self._next_id = 0
+
+        self._trajectories: dict[int, list] = {}
+
+        self._frame_center = np.array((offset_x + width // 2, offset_y + height // 2))
+        self._max_dist = max_dist
+
+
+    def track(self, frame):
+        """Builds trajectories for detected objects.
+        
+        Parameters
+        ----------
+        frame: numpy.ndarray
+            A BGR formated video frame.
+
+        """
+
+        
+        # Find contours
+        contours, hierarchy = get_contours(frame, self._canny_thres)
+
+        # Get the rotated rectangles and associated bounding boxes
+        rrects = []
+        bboxes = []
+        scores = []
+        for i, c in enumerate(contours):
+            # Find minimum enveloping rotated rectangle
+            r_rect = get_rotated_bbox(c)
+
+            # Compute distance to center of frame
+            dist = np.linalg.norm(self._frame_center - r_rect.center)
+
+            # Avoid detecting the edges of the petri dish or small foreign bodies
+            if dist > self._max_dist or np.any(np.array(r_rect.size) < 5):
+                continue
+
+            # Store all information related to the rotated rectangle for later filtering
+            rrects.append(r_rect)
+            bboxes.append(r_rect.boundingRect())  # In opencv a rectangle is represented by (x, y, w, h)
+            scores.append(r_rect.size[0] * r_rect.size[1])
+
+        if len(bboxes) != 0:
+            # Non-maximum suppression to keep only non-overlapping rotated rectangles
+            indices = cv.dnn.NMSBoxes(np.array(bboxes), np.array(scores), score_threshold=0, nms_threshold=self._nms_thres)
+            rrects = [rrects[idx] for idx in indices]
+
+            assigned_d = set()  # Detected objects that have been assigned to a tracked object
+            assigned_t = set()  # Tracked objects that have been assigned a detected object
+            if len(self._trajectories) > 0:
+                tracked_ids = list(self._trajectories.keys())
+                dists = np.full((len(rrects), len(self._trajectories)), np.inf)
+
+                # Compute the distance between all tracked objects and all detected objects
+                for ridx, rect in enumerate(rrects):
+                    for tidx, tid in enumerate(tracked_ids):
+                        tracked_loc = self._trajectories[tid][-1]  # Get the last known position in the trajectory
+                        dists[ridx, tidx] = np.linalg.norm((tracked_loc.center[0] - rect.center[0], tracked_loc.center[1] - rect.center[1]))
+
+                for ridx, rect in enumerate(rrects):
+                    min_tidx = dists[ridx].argmin()
+                    d = dists[ridx].min()
+                    if d > 30:
+                        continue
+                    tid = tracked_ids[min_tidx]
+                    self._trajectories[tid].append(rect)
+                    assigned_d.add(ridx)
+                    assigned_t.add(tid)
+
+                    if len(assigned_t) == len(tracked_ids):
+                        break
+
+            # Treat all remaining rectangles as new objects
+            new = set(range(len(rrects))).difference(assigned_d)
+            for idx in new:
+                self._trajectories[self._next_id] = [rrects[idx]]
+                self._next_id += 1
