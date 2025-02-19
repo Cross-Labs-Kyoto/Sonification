@@ -78,11 +78,11 @@ class MvTracker(object):
         self._nms_thres = nms_thres
         self._next_id = 0
 
-        self._trajectories: dict[int, list] = {}
+        self.trajectories: dict[int, list] = {}
+        self.icrs: dict[int, list] = {}
 
         self._frame_center = np.array((offset_x + width // 2, offset_y + height // 2))
         self._max_dist = max_dist
-
 
     def track(self, frame):
         """Builds trajectories for detected objects.
@@ -125,16 +125,16 @@ class MvTracker(object):
 
             assigned_d = set()  # Detected objects that have been assigned to a tracked object
             assigned_t = set()  # Tracked objects that have been assigned a detected object
-            if len(self._trajectories) > 0:
-                tracked_ids = list(self._trajectories.keys())
+            if len(self.trajectories) > 0:
+                tracked_ids = list(self.trajectories.keys())
 
                 for ridx, rect in enumerate(rrects):
                     # Compute the distance between all tracked objects and all detected objects
-                    dists = np.full((len(self._trajectories),), np.inf)
+                    dists = np.full((len(self.trajectories),), np.inf)
                     for tidx, tid in enumerate(tracked_ids):
                         if tid in assigned_t:
                             continue
-                        tracked_loc = self._trajectories[tid][-1]  # Get the last known position in the trajectory
+                        tracked_loc = self.trajectories[tid][-1]  # Get the last known position in the trajectory
                         dists[tidx] = np.linalg.norm((tracked_loc.center[0] - rect.center[0], tracked_loc.center[1] - rect.center[1]))
 
                     # If there are no tracked objects close, just move on
@@ -144,7 +144,7 @@ class MvTracker(object):
                     # Assign the detected object to the closest tracked object
                     min_tidx = dists.argmin()
                     tid = tracked_ids[min_tidx]
-                    self._trajectories[tid].append(rect)
+                    self.trajectories[tid].append(rect)
                     assigned_d.add(ridx)
                     assigned_t.add(tid)
 
@@ -154,5 +154,5 @@ class MvTracker(object):
             # Treat all remaining rectangles as new objects
             new = set(range(len(rrects))).difference(assigned_d)
             for idx in new:
-                self._trajectories[self._next_id] = [rrects[idx]]
+                self.trajectories[self._next_id] = [rrects[idx]]
                 self._next_id += 1
