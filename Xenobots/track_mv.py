@@ -29,6 +29,7 @@ try:
 
     # Extract information about the video
     vid_w, vid_h = int(vc.get(cv.CAP_PROP_FRAME_WIDTH)), int(vc.get(cv.CAP_PROP_FRAME_HEIGHT))
+    fps = int(vc.get(cv.CAP_PROP_FPS))
     # Find the frame center
     vid_c = np.array(( 50 + vid_w // 2, vid_h // 2))
     max_dist = 560
@@ -43,9 +44,17 @@ try:
         # Track objects
         tracker.track(frame)
 
-        for tid, tracks in tracker._trajectories.items():
+        for tid, tracks in tracker.trajectories.items():
+            # Draw whole trajectory
             for idx in range(1, len(tracks)):
                 cv.line(frame, np.intp(tracks[idx - 1].center), np.intp(tracks[idx].center), colors[tid%len(colors)][::-1], 2)
+
+            # Draw Instantaneous Center of Rotation
+            try:
+                icr = np.stack(tracker.icrs[tid][-fps // 2:], axis=0).mean(axis=0).astype(int)
+                frame = cv.circle(frame, icr, 1, (0, 0, 255), 3)
+            except KeyError:
+                pass
 
         cv.imshow('Debug', frame)
         cv.pollKey()
