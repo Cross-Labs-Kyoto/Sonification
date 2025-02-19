@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from math import pow
+
 import numpy as np
 import cv2 as cv
 
@@ -148,6 +150,14 @@ class MvTracker(object):
                     assigned_d.add(ridx)
                     assigned_t.add(tid)
 
+                    # Get the instantaneous center of rotation
+                    icr = self.get_icr(tid)
+                    if icr is not None:
+                        if tid not in self.icrs:
+                            self.icrs[tid] = [icr]
+                        else:
+                            self.icrs[tid].append(icr)
+
                     if len(assigned_t) == len(tracked_ids):
                         break
 
@@ -156,3 +166,40 @@ class MvTracker(object):
             for idx in new:
                 self.trajectories[self._next_id] = [rrects[idx]]
                 self._next_id += 1
+
+    def get_icr(self, obj_id):
+        """Computes the Instantaneous Center of Rotation based on the object's location in three consecutive frames."""
+
+        # If we have less than 3 points, there is nothing that can be done
+        trajects = self.trajectories[obj_id]
+        #print([r.center for r in trajects[-5:]])
+        if len(trajects) < 3:
+            return None
+
+        # Get the last three known positions
+        x1, y1 = trajects[-1].center
+        x2, y2 = trajects[-2].center
+        x3, y3 = trajects[-3].center
+
+        # Get the perpendicular bisector for both pairs of points
+        try:
+            m1 = (x1 - x2) / (y2 - y1)
+            b1 = (pow(y2, 2) - pow(y1, 2) + pow(x2, 2) - pow(x1, 2)) / (2 * (y2 - y1))
+        except ZeroDivisionError:
+            return None
+
+        try:
+            m2 = (x2 - x3) / (y3 - y2)
+            b2 = (pow(y3, 2) - pow(y2, 2) + pow(x3, 2) - pow(x2, 2)) / (2 * (y3 - y2))
+        except ZeroDivisionError:
+            return None
+
+        # Compute the point of intersection of the two bisectors
+        try:
+            x = (b2 - b1) / (m1 - m2)
+            y = (m1 * b2 - m2 * b1) / (m1 - m2)
+
+            return (int(x), int(y))
+        except ZeroDivisionError:
+            return None
+
