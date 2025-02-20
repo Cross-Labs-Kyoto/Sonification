@@ -40,6 +40,13 @@ def get_rotated_bbox(contour):
     return rect
 
 
+def cart_to_polar(x, y):
+    return np.norm((x, y)), np.arctan2(y, x)
+
+def polar_to_cart(r, theta):
+    return r * np.cos(theta), r * np.sin(theta)
+
+
 def get_tl_br(rect):
     return (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3])
 
