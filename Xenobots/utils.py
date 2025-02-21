@@ -7,6 +7,14 @@ import cv2 as cv
 from settings import SAMPLE_RATE
 
 
+def get_video_meta(vc):
+    width, height = int(vc.get(cv.CAP_PROP_FRAME_WIDTH)), int(vc.get(cv.CAP_PROP_FRAME_HEIGHT))
+    fps = int(vc.get(cv.CAP_PROP_FPS))
+    tot_frames = int(vc.get(cv.CAP_PROP_FRAME_COUNT))
+
+    return width, height, fps, tot_frames
+    
+
 def get_contours(frame, thres):
     # Convert color to gradients of gray
     frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
@@ -43,7 +51,7 @@ def get_rotated_bbox(contour):
 
 
 def cart_to_polar(x, y):
-    return np.norm((x, y)), np.arctan2(y, x)
+    return np.linalg.norm((x, y)), np.arctan2(y, x)
 
 
 def polar_to_cart(r, theta):
@@ -128,8 +136,10 @@ class MvTracker(object):
 
         self.trajectories: dict[int, list] = {}
         self.icrs: dict[int, list] = {}
+        self.starts: dict[int, int] = {}
 
         self._frame_center = np.array((offset_x + width // 2, offset_y + height // 2))
+        self._nb_frames = 0
         self._max_dist = max_dist
 
     def track(self, frame):
@@ -211,21 +221,27 @@ class MvTracker(object):
             new = set(range(len(rrects))).difference(assigned_d)
             for idx in new:
                 self.trajectories[self._next_id] = [rrects[idx]]
+                self.starts[self._next_id] = self._nb_frames
                 self._next_id += 1
+
+        # Increase the number of processed frames
+        self._nb_frames += 1
 
     def get_icr(self, obj_id):
         """Computes the Instantaneous Center of Rotation based on the object's location in three consecutive frames."""
 
         # If we have less than 3 points, there is nothing that can be done
         trajects = self.trajectories[obj_id]
-        #print([r.center for r in trajects[-5:]])
         if len(trajects) < 3:
             return None
 
         # Get the last three known positions
-        x1, y1 = trajects[-1].center
-        x2, y2 = trajects[-2].center
-        x3, y3 = trajects[-3].center
+        try:
+            x1, y1 = trajects[-1].center
+            x2, y2 = trajects[-2].center
+            x3, y3 = trajects[-3].center
+        except AttributeError:
+            return None
 
         # Get the perpendicular bisector for both pairs of points
         try:
