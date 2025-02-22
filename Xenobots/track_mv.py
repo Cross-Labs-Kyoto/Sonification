@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import numpy as np
 import cv2 as cv
+from tqdm import tqdm
 
-from utils import MvTracker
+from utils import MvTracker, get_video_meta
 
 
 colors = [
@@ -21,21 +22,20 @@ colors = [
 # Set the threshold for canny edge detection
 thres = 40
 
+win_name = 'Debug'
+
 # Declare a video input
 vc = cv.VideoCapture('Data/test.mov')
 try:
     # Create a named window to display the results
-    cv.namedWindow('Debug', cv.WINDOW_NORMAL | cv.WINDOW_KEEPRATIO | cv.WINDOW_GUI_NORMAL)
+    cv.namedWindow(win_name, cv.WINDOW_NORMAL | cv.WINDOW_KEEPRATIO | cv.WINDOW_GUI_NORMAL)
 
     # Extract information about the video
-    vid_w, vid_h = int(vc.get(cv.CAP_PROP_FRAME_WIDTH)), int(vc.get(cv.CAP_PROP_FRAME_HEIGHT))
-    fps = int(vc.get(cv.CAP_PROP_FPS))
-    # Find the frame center
-    vid_c = np.array(( 50 + vid_w // 2, vid_h // 2))
-    max_dist = 560
+    vid_w, vid_h, fps, tot_frames = get_video_meta(vc)
 
     # Instantiate a movement tracker
-    tracker = MvTracker(vid_w, vid_h, max_dist, offset_x=50)
+    tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50)
+    prog = tqdm(desc='Frames', total=tot_frames, unit='fps', position=0)
     while True:
         ret, frame = vc.read()
         if not ret:
@@ -51,13 +51,15 @@ try:
 
             # Draw Instantaneous Center of Rotation
             try:
-                icr = np.stack(tracker.icrs[tid][-fps // 2:], axis=0).mean(axis=0).astype(int)
+                icrs = tracker.icrs[tid][-fps // 2:]
+                icr = np.stack(icrs, axis=0).mean(axis=0).astype(int)
                 frame = cv.circle(frame, icr, 1, (0, 0, 255), 3)
             except KeyError:
                 pass
 
-        cv.imshow('Debug', frame)
+        cv.imshow(win_name, frame)
         cv.pollKey()
+        prog.update()
 except KeyboardInterrupt:
     pass
 finally:
