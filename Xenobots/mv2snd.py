@@ -103,6 +103,12 @@ try:
         # Move the progress bar forward
         prog.update()
 
+except KeyboardInterrupt:
+    pass
+finally:
+    # Close the video stream
+    vc.release()
+
     # Find extreme frequencies to normalize values to the [0, 1] interval
     max_freq = 0
     min_freq = np.inf
@@ -114,64 +120,58 @@ try:
         if min_fs < min_freq:
             min_freq = min_fs
 
-    song = []
-    for tid, fs in freqs.items():
-        # Clamp the various frequencies to the closest note
-        t_fs = librosa.note_to_hz(librosa.hz_to_note([220 + (440 * (f + 1e-4 - min_freq) / (max_freq - min_freq)) for f in fs])) # 1e-4 has been added to avoid division by zero when converting to note
+song = []
+for tid, fs in freqs.items():
+    # Clamp the various frequencies to the closest note
+    t_fs = librosa.note_to_hz(librosa.hz_to_note([220 + (440 * (f + 1e-4 - min_freq) / (max_freq - min_freq)) for f in fs])) # 1e-4 has been added to avoid division by zero when converting to note
 
-        # Generate the signal corresponding to the current tracked object
-        left, right = [], []
-        idx = 0
-        while idx < len(t_fs):
-            start = idx
+    # Generate the signal corresponding to the current tracked object
+    left, right = [], []
+    idx = 0
+    while idx < len(t_fs):
+        start = idx
+        idx += 1
+        while idx < len(t_fs) and t_fs[start] == t_fs[idx]:
             idx += 1
-            while idx < len(t_fs) and t_fs[start] == t_fs[idx]:
-                idx += 1
 
-            # Generate the tone
-            tone = librosa.tone(t_fs[start], sr=SAMPLE_RATE, duration=(idx - start)/fps)
+        # Generate the tone
+        tone = librosa.tone(t_fs[start], sr=SAMPLE_RATE, duration=(idx - start)/fps)
 
-            # Cross fade
-            nb_samples = int(SAMPLE_RATE / fps)
-            cross_amp = np.linspace(0, 1, num=nb_samples)
-            tone[-nb_samples:] *= cross_amp[::-1]  # Fade out the end
-            tone[0:nb_samples] *= cross_amp # Fade in the beginning
+        # Cross fade
+        nb_samples = int(SAMPLE_RATE / fps)
+        cross_amp = np.linspace(0, 1, num=nb_samples)
+        tone[-nb_samples:] *= cross_amp[::-1]  # Fade out the end
+        tone[0:nb_samples] *= cross_amp # Fade in the beginning
 
-            # Add the tone to both channels
-            left.append(tone)
-            right.append(tone)
+        # Add the tone to both channels
+        left.append(tone)
+        right.append(tone)
 
 
-        # Compile the left and write channels
-        left = np.concatenate(left, axis=0)
-        right = np.concatenate(right, axis=0)
+    # Compile the left and write channels
+    left = np.concatenate(left, axis=0)
+    right = np.concatenate(right, axis=0)
 
-        # Make sure they are of the right length (rounding errors in tone generation)
-        diff = pans[tid]['left'].shape[0] - left.shape[0]
-        if diff != 0:
-            left = np.concatenate([np.zeros((diff,)), left], axis=0)
-            right = np.concatenate([np.zeros((diff,)), right], axis=0)
+    # Make sure they are of the right length (rounding errors in tone generation)
+    diff = pans[tid]['left'].shape[0] - left.shape[0]
+    if diff != 0:
+        left = np.concatenate([np.zeros((diff,)), left], axis=0)
+        right = np.concatenate([np.zeros((diff,)), right], axis=0)
 
 
-        # Apply the left/right panning
-        left *= pans[tid]['left']
-        right *= pans[tid]['right']
+    # Apply the left/right panning
+    left *= pans[tid]['left']
+    right *= pans[tid]['right']
 
-        # Apply the loudness to both channels
-        #left *= louds[tid] / 100
-        #right *= louds[tid] / 100
+    # Apply the loudness to both channels
+    #left *= louds[tid] / 100
+    #right *= louds[tid] / 100
 
-        # Append the signal to the others
-        song.append(np.stack([left, right], axis=1))
+    # Append the signal to the others
+    song.append(np.stack([left, right], axis=1))
 
-    # Mix all the signals together
-    song = (np.stack(song, axis=0).mean(axis=0) * np.iinfo(np.int16).max).astype(np.int16)
+# Mix all the signals together
+song = (np.stack(song, axis=0).mean(axis=0) * np.iinfo(np.int16).max).astype(np.int16)
 
-    # Write the song to file
-    wavfile.write('test.wav', SAMPLE_RATE, song)
-
-except KeyboardInterrupt:
-    pass
-finally:
-    # Close the video stream
-    vc.release()
+# Write the song to file
+wavfile.write('test.wav', SAMPLE_RATE, song)
