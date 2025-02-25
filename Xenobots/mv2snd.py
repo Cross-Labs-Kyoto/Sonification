@@ -9,8 +9,14 @@ from utils import MvTracker, cart_to_polar, get_video_meta
 from settings import SAMPLE_RATE, DATA_DIR
 
 
+# Make sure the test video exists
+vid_path = DATA_DIR.joinpath('test.mov')
+if not vid_path.exists():
+    print(f'The input video: {vid_path} does not exist.')
+    exit(-1)
+
 # Instantiate a video reader
-vc = cv.VideoCapture(str(DATA_DIR.joinpath('test.mov')))
+vc = cv.VideoCapture(str(vid_path))
 
 # Extract information about the video stream
 vid_w, vid_h, fps, tot_frames = get_video_meta(vc)
