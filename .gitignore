@@ -1,6 +1,7 @@
 # Custom rules
 *.wav
 *.todo
+*.midi
 .python-version
 Data/
 
