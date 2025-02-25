@@ -41,3 +41,6 @@ $> poetry shell
 $> python mv2snd.py
 ```
 This will produce a `test.wav` audio file in the current working directory. The produced sound should be of the same length as the provided video, such that you can either use third-party software (e.g.: ffmpeg) to combine the audio and video, or open both files separately.
+
+# Feedback / Error
+To provide any feedback or if you encounter problems using this repository, please open a new [**Issue**](https://github.com/Cross-Labs-Kyoto/Sonification/issues) and assign it the tag corresponding to the particular sub-project you are interested in.
