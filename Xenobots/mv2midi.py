@@ -7,16 +7,17 @@ from utils import mv_to_freqs_n_pans, get_video_meta
 from settings import DATA_DIR
 
 
+# String instruments only
+#INSTRUMENTS = list(range(40, 56))
 INSTRUMENTS = [
-    13,  # Marimba
-    33,  # Acoustic bass
-    1,  # Grand Piano
-    25,  # Acoustic Guitar
-    41,  # Violin
-    43,  # Cello
-    80,  # Ocarina
-    12,  # Vibraphone
-    107,  # Shamisen
+    27,
+    41,
+    58,
+    65,
+    73,
+    80,
+    16,
+    33
 ]
 
 
@@ -56,7 +57,6 @@ if __name__ == "__main__":
 
 
         # Set the instrument for the current object
-        # TODO: That does not work! You are changing the global value of channel 0 and 1
         track.append(Message('program_change', channel=tid, program=INSTRUMENTS[tid % len(INSTRUMENTS)]))
         track.append(Message('program_change', channel=tid+1, program=INSTRUMENTS[tid % len(INSTRUMENTS)]))
 
@@ -65,7 +65,6 @@ if __name__ == "__main__":
         notes = [round(librosa.hz_to_midi(220 + f * 440)) for f in fs]
 
         # Send midi messages according to notes and pans
-        # TODO: Each agent should write to its own pair of channels (left, right)
         prev_note = None
         for note, pan_l, pan_r in zip(notes, pans[tid]['left'], pans[tid]['right']):
             # Start a new note
@@ -88,6 +87,7 @@ if __name__ == "__main__":
 
             # Modulate the current note using the left/right pan
             else:
+                # TODO: Is aftertouch better here?
                 track.append(Message('polytouch', channel=tid, note=note, value=round(pan_l * 63 + 64), time=d_t))
                 track.append(Message('polytouch', channel=tid+1, note=note, value=round(pan_r * 63 + 64), time=0))
 
