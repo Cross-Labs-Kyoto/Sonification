@@ -81,8 +81,8 @@ try:
                 freqs[tid].append(freqs[tid][-1] * (1 - 0.05) + 0.05 * freq)
 
             # Compute the left, right panning
-            left = np.sqrt(2) / 2 * (np.cos(curr_polar[1] + np.pi / 4) - np.sin(curr_polar[1] + np.pi / 4)) * np.ones((int(SAMPLE_RATE/fps), ))
-            right = np.sqrt(2) / 2 * (np.cos(curr_polar[1] + np.pi / 4) + np.sin(curr_polar[1] + np.pi / 4)) * np.ones((int(SAMPLE_RATE/fps), ))
+            left = np.sqrt(2) / 2 * (np.sin(curr_polar[1]) + np.cos(curr_polar[1])) * np.ones((int(SAMPLE_RATE/fps), ))
+            right = np.sqrt(2) / 2 * (np.sin(curr_polar[1]) - np.cos(curr_polar[1])) * np.ones((int(SAMPLE_RATE/fps), ))
 
             if tid not in pans:
                 pans[tid] = {'left': np.concatenate([np.full((int(SAMPLE_RATE * tracker.starts[tid]/fps), ), 0), left], axis=0), 
