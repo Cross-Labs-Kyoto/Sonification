@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+from pathlib import Path
 from math import pow
 
 import numpy as np
 import cv2 as cv
+from tqdm import tqdm
 
 from settings import SAMPLE_RATE
 
@@ -98,6 +100,101 @@ def crossfade(sig1, sig2, dur):
     # Combine everything into final signal
     return np.concatenate([sig1[:-nb_samples], cross, sig2[nb_samples:]], axis=0)
 
+
+def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
+
+    # Extract information about the video stream
+    vid_w, vid_h, fps, tot_frames = get_video_meta(video_capture)
+
+    # Instantiate an object tracker
+    tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50)
+
+    # Track all objects
+    prog = tqdm(desc='Frames', total=tot_frames, unit='frame', position=0)
+    freqs: dict[int, list] = {}
+    pans: dict[int, dict[str, list]] = {}
+    while True:
+        ret, frame = video_capture.read()
+        if not ret:
+            break
+
+        # Track detected objects
+        tracker.track(frame)
+
+        # Go through all the detected objects
+        for tid, traj in tracker.trajectories.items():
+            # Handle objects with a single point in their trajectory
+            if len(traj) < 2:
+                prev = np.zeros((2,), dtype=int)
+                curr = np.zeros((2,), dtype=int)
+                curr_polar = np.zeros((2,), dtype=int)
+                icrs = [(0, 0), (0, 0)]
+            else:
+
+                # Convert the current position into polar coordinates for panning
+                curr_polar = cart_to_polar(traj[-1].center[0] - (tracker.frame_center[0]), tracker.frame_center[1] - traj[-1].center[1])
+
+                # Handle objects with no instantaneous centers of rotations
+                if tid not in tracker.icrs:
+                    # Replace the instantaneous center of rotations with the detected object's own center
+                    icrs = [r.center for r in traj[-fps // 2:]]
+                else:
+
+                    # Get the last few instantaneous centers of rotations
+                    icrs = tracker.icrs[tid][-fps // 2:]
+
+                # Compute the coordinates of the icr
+                # We take the average of a few centers to filter out the jitter
+                icr = np.stack(icrs, axis=0).mean(axis=0).astype(int)
+
+                # Translate the coordinates of the last and current position in the icr coordinate system
+                prev = cart_to_polar(*(np.array(traj[-2].center, dtype=int) - icr))
+                curr = cart_to_polar(*(np.array(traj[-1].center, dtype=int) - icr))
+
+            # Compute the angle between the two positions
+            theta = np.abs(curr[1] - prev[1])
+
+            # Compute the frequency of movement
+            freq = (theta * fps) / (2 * np.pi)
+
+            # Filter frequency to smooth them out
+            if tid not in freqs:
+                freqs[tid] = [0] * tracker.starts[tid] + [freq]
+            else:
+                freqs[tid].append(freqs[tid][-1] * (1 - decay_rate) + decay_rate * freq)
+
+            # Compute the left, right panning
+            left = -(np.cos(np.abs(curr_polar[1]))).item()
+            right = (np.cos(np.abs(curr_polar[1]))).item()
+            
+            if tid not in pans:
+                pans[tid] = {'left': [0] * tracker.starts[tid] + [left],
+                             'right': [0] * tracker.starts[tid] + [right]}
+            else:
+                pans[tid]['left'].append(left)
+                pans[tid]['right'].append(right)
+
+        # Move the progress bar forward
+        prog.update()
+
+    # Normalize the frequencies to the interval [0, 1]
+    max_freq = 0
+    min_freq = np.inf
+    for fs in freqs.values():
+        max_fs = max(fs)
+        min_fs = min(fs)
+        if max_fs > max_freq:
+            max_freq = max_fs
+        if min_fs < min_freq:
+            min_freq = min_fs
+
+    for tid in freqs.keys():
+        freqs[tid] = [(f - min_freq + 1e-8) / (max_freq - min_freq) for f in freqs[tid]]  # 1e-4 has been added to avoid division by zero when converting to note
+
+    # Return the frequencies and panning for all tracked objects
+    return freqs, pans
+
+
 class MvTracker(object):
     """Defines an edge detection-based tracker for moving objects."""
 
@@ -138,7 +235,7 @@ class MvTracker(object):
         self.icrs: dict[int, list] = {}
         self.starts: dict[int, int] = {}
 
-        self._frame_center = np.array((offset_x + width // 2, offset_y + height // 2))
+        self.frame_center = np.array((offset_x + width // 2, offset_y + height // 2))
         self._nb_frames = 0
         self._max_dist = max_dist
 
@@ -165,7 +262,7 @@ class MvTracker(object):
             r_rect = get_rotated_bbox(c)
 
             # Compute distance to center of frame
-            dist = np.linalg.norm(self._frame_center - r_rect.center)
+            dist = np.linalg.norm(self.frame_center - r_rect.center)
 
             # Avoid detecting the edges of the petri dish or small foreign bodies
             if dist > self._max_dist or np.any(np.array(r_rect.size) < 5):
