@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from pathlib import Path
 from math import pow
 
 import numpy as np
@@ -277,6 +276,9 @@ class MvTracker(object):
             # Non-maximum suppression to keep only non-overlapping rotated rectangles
             indices = cv.dnn.NMSBoxes(np.array(bboxes), np.array(scores), score_threshold=0, nms_threshold=self._nms_thres)
             rrects = [rrects[idx] for idx in indices]
+
+            if len(rrects) > 10:
+                print(f'Detected an awful lot of objects ({len(rrects)})!!! Increase the canny threshold for better detection.')
 
             assigned_d = set()  # Detected objects that have been assigned to a tracked object
             assigned_t = set()  # Tracked objects that have been assigned a detected object
