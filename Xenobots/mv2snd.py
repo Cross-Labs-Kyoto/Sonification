@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from argparse import ArgumentParser
+from pathlib import Path
 import numpy as np
 from scipy.io import wavfile
 import cv2 as cv
@@ -6,24 +8,27 @@ import librosa
 from tqdm import tqdm
 
 from utils import MvTracker, cart_to_polar, get_video_meta
-from settings import SAMPLE_RATE, DATA_DIR
+from settings import SAMPLE_RATE
 
 
-# Make sure the test video exists
-vid_path = DATA_DIR.joinpath('test.mov')
-if not vid_path.exists():
-    print(f'The input video: {vid_path} does not exist.')
+parser = ArgumentParser()
+parser.add_argument('filename', type=str)
+parser.add_argument('-t', '--thres', dest='canny_thres', type=int, default=40)
+
+args = parser.parse_args()
+vid_file = Path(args.filename).expanduser().resolve()
+if not vid_file.exists() or not vid_file.is_file():
     exit(-1)
 
 # Instantiate a video reader
-vc = cv.VideoCapture(str(vid_path))
+vc = cv.VideoCapture(str(vid_file))
 
 # Extract information about the video stream
 vid_w, vid_h, fps, tot_frames = get_video_meta(vc)
 
 try:
     # Instantiate an object tracker
-    tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50)
+    tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50, canny_thres=args.canny_thres)
 
     # Track all objects
     prog = tqdm(desc='Frames', total=tot_frames, unit='fps', position=0)
@@ -174,4 +179,4 @@ for tid, fs in freqs.items():
 song = (np.stack(song, axis=0).mean(axis=0) * np.iinfo(np.int16).max).astype(np.int16)
 
 # Write the song to file
-wavfile.write('test.wav', SAMPLE_RATE, song)
+wavfile.write(vid_file.with_suffix('.wav'), SAMPLE_RATE, song)
