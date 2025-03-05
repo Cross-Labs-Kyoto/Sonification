@@ -97,13 +97,13 @@ try:
                 pans[tid]['right'] = np.concatenate([pans[tid]['right'], right], axis=0)
 
             # Compute the linear speed of the icr
-            loud = np.full((int(SAMPLE_RATE / fps), ), min(500, freqs[tid][-1] * 2 * np.pi * curr[0]))
+            #loud = np.full((int(SAMPLE_RATE / fps), ), min(500, freqs[tid][-1] * 2 * np.pi * curr[0]))
 
             # Set loudness based on linear speed of icr
-            if tid not in louds:
-                louds[tid] = np.concatenate([np.zeros((int(SAMPLE_RATE * tracker.starts[tid]/fps), )), loud], axis=0)
-            else:
-                louds[tid] = np.concatenate([louds[tid], loud], axis=0)
+            #if tid not in louds:
+            #    louds[tid] = np.concatenate([np.zeros((int(SAMPLE_RATE * tracker.starts[tid]/fps), )), loud], axis=0)
+            #else:
+            #    louds[tid] = np.concatenate([louds[tid], loud], axis=0)
 
         # Move the progress bar forward
         prog.update()
