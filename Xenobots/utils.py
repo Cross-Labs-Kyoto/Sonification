@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from math import pow
+from collections import deque
 
 import numpy as np
 import cv2 as cv
@@ -229,11 +230,12 @@ class MvTracker(object):
 
         self._canny_thres = canny_thres
         self._nms_thres = nms_thres
-        self._next_id = 0
 
-        self.trajectories: dict[int, list] = {}
-        self.icrs: dict[int, list] = {}
-        self.starts: dict[int, int] = {}
+        self.abs_pos: dict[int, deque] = {}
+        self.abs_vels: dict[int, deque] = {}
+
+        self.icrs: dict[int, np.ndarray] = {}
+        self.rel_pos: dict[int, tuple] = {}
 
         # TODO: Adapt distance_threshold, if too many dropped objects
         self._tracker = Tracker(distance_function='euclidean', distance_threshold=50, hit_counter_max=5, filter_factory=OptimizedKalmanFilterFactory(R=0.1, Q=4))
@@ -298,51 +300,68 @@ class MvTracker(object):
 
             # Update tracker
             tracked_objs = self._tracker.update(detections)
-            # TODO: Remove next (temporary) line
+            for obj in tracked_objs:
+                # Store the absolute velocity
+                if obj.id not in self.abs_vels:
+                    self.abs_vels[obj.id] = deque(maxlen=2)
+                self.abs_vels[obj.id].append(obj.estimate_velocity.squeeze(axis=0))
 
-            # TODO: Update list of world positions for all tracked objects
-            #       Or should we declare properties to access the tracked objects instead?
-            #       Or We can declare internal objects to keep track of icrs, positions, speeds and acceleration?
+                # Store the absolute position
+                if obj.id not in self.abs_pos:
+                    self.abs_pos[obj.id] = deque(maxlen=3)
+                self.abs_pos[obj.id].append(obj.estimate.squeeze(axis=0))
 
-            # TODO: Update list of ICR positions for all tracked objects
+                # Get the ICR if possible
+                icr = self.get_icr(obj.id)
+                if icr is not None:
+                    self.icrs[obj.id] = icr
+
+                    # Compute the rotational speed around the icr
+                    old_pos, curr_pos = list(self.abs_pos[obj.id])[1:]
+                    old_rel_pos = cart_to_polar(*(old_pos - icr))
+                    curr_rel_pos = cart_to_polar(*(curr_pos - icr))
+                    self.rel_pos[obj.id] = (old_rel_pos, curr_rel_pos)
 
     def get_icr(self, obj_id):
         """Computes the Instantaneous Center of Rotation based on the object's location in three consecutive frames."""
 
         # If we have less than 3 points, there is nothing that can be done
-        trajects = self.trajectories[obj_id]
+        trajects = self.abs_pos[obj_id]
         if len(trajects) < 3:
             return None
 
         # Get the last three known positions
-        try:
-            x1, y1 = trajects[-1].center
-            x2, y2 = trajects[-2].center
-            x3, y3 = trajects[-3].center
-        except AttributeError:
+        x1, y1 = trajects[-1]
+        x2, y2 = trajects[-2]
+        x3, y3 = trajects[-3]
+
+        # Avoid dividing by zero
+        if y1 == y2 or y2 == y3:
             return None
 
         # Get the perpendicular bisector for both pairs of points
-        try:
-            m1 = (x1 - x2) / (y2 - y1)
-            b1 = (pow(y2, 2) - pow(y1, 2) + pow(x2, 2) - pow(x1, 2)) / (2 * (y2 - y1))
-        except ZeroDivisionError:
-            return None
+        m1 = (x1 - x2) / (y2 - y1)
+        b1 = (pow(y2, 2) - pow(y1, 2) + pow(x2, 2) - pow(x1, 2)) / (2 * (y2 - y1))
 
-        try:
-            m2 = (x2 - x3) / (y3 - y2)
-            b2 = (pow(y3, 2) - pow(y2, 2) + pow(x3, 2) - pow(x2, 2)) / (2 * (y3 - y2))
-        except ZeroDivisionError:
+        m2 = (x2 - x3) / (y3 - y2)
+        b2 = (pow(y3, 2) - pow(y2, 2) + pow(x3, 2) - pow(x2, 2)) / (2 * (y3 - y2))
+
+        # Avoid dividing by zero
+        if m1 == m2:
             return None
 
         # Compute the point of intersection of the two bisectors
-        try:
-            x = (b2 - b1) / (m1 - m2)
-            y = (m1 * b2 - m2 * b1) / (m1 - m2)
+        x = (b2 - b1) / (m1 - m2)
+        y = (m1 * b2 - m2 * b1) / (m1 - m2)
+        return np.array((x, y), dtype=int)
 
-            return (int(x), int(y))
-        except ZeroDivisionError:
-            return None
+    @property
+    def tracked_objects(self):
+        objs = self._tracker.get_active_objects()
+        if objs is None:
+            return []
+        return objs
+        
 
 
 class VideoIterator(cv.VideoCapture):
