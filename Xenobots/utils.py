@@ -3,7 +3,9 @@ from math import pow
 
 import numpy as np
 import cv2 as cv
+from norfair import Detection, Tracker, OptimizedKalmanFilterFactory
 from tqdm import tqdm
+from loguru import logger
 
 from settings import SAMPLE_RATE
 
@@ -101,7 +103,6 @@ def crossfade(sig1, sig2, dur):
 
 
 def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
-
     # Extract information about the video stream
     vid_w, vid_h, fps, tot_frames = get_video_meta(video_capture)
 
@@ -188,7 +189,7 @@ def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
             min_freq = min_fs
 
     for tid in freqs.keys():
-        freqs[tid] = [(f - min_freq + 1e-8) / (max_freq - min_freq) for f in freqs[tid]]  # 1e-4 has been added to avoid division by zero when converting to note
+        freqs[tid] = [(f - min_freq + 1e-8) / (max_freq - min_freq) for f in freqs[tid]]  # 1e-8 has been added to avoid division by zero when converting to note
 
     # Return the frequencies and panning for all tracked objects
     return freqs, pans
@@ -234,8 +235,10 @@ class MvTracker(object):
         self.icrs: dict[int, list] = {}
         self.starts: dict[int, int] = {}
 
+        # TODO: Adapt distance_threshold, if too many dropped objects
+        self._tracker = Tracker(distance_function='euclidean', distance_threshold=50, hit_counter_max=5, filter_factory=OptimizedKalmanFilterFactory(R=0.1, Q=4))
+
         self.frame_center = np.array((offset_x + width // 2, offset_y + height // 2))
-        self._nb_frames = 0
         self._max_dist = max_dist
 
     def track(self, frame):
@@ -253,7 +256,6 @@ class MvTracker(object):
         contours, hierarchy = get_contours(frame, self._canny_thres)
 
         # Get the rotated rectangles and associated bounding boxes
-        rrects = []
         bboxes = []
         scores = []
         for i, c in enumerate(contours):
@@ -268,63 +270,41 @@ class MvTracker(object):
                 continue
 
             # Store all information related to the rotated rectangle for later filtering
-            rrects.append(r_rect)
             bboxes.append(r_rect.boundingRect())  # In opencv a rectangle is represented by (x, y, w, h)
             scores.append(r_rect.size[0] * r_rect.size[1])
 
         if len(bboxes) != 0:
-            # Non-maximum suppression to keep only non-overlapping rotated rectangles
-            indices = cv.dnn.NMSBoxes(np.array(bboxes), np.array(scores), score_threshold=0, nms_threshold=self._nms_thres)
-            rrects = [rrects[idx] for idx in indices]
+            # Turn scores and bboxes into numpy arrays for ease of manipulation
+            scores = np.array(scores)
+            bboxes = np.array(bboxes)
 
-            if len(rrects) > 10:
-                print(f'Detected an awful lot of objects ({len(rrects)})!!! Increase the canny threshold for better detection.')
+            # Non-maximum suppression to keep only non-overlapping bboxes
+            indices = cv.dnn.NMSBoxes(bboxes, scores, score_threshold=0, nms_threshold=self._nms_thres)
 
-            assigned_d = set()  # Detected objects that have been assigned to a tracked object
-            assigned_t = set()  # Tracked objects that have been assigned a detected object
-            if len(self.trajectories) > 0:
-                tracked_ids = list(self.trajectories.keys())
+            if len(indices) > 10:
+                logger.warning(f'Detected an awful lot of objects ({len(indices)})!!! Increase the canny threshold for better detection.')
+            
+            # Keep only non-overlapping bboxes
+            bboxes = bboxes[indices]
 
-                for ridx, rect in enumerate(rrects):
-                    # Compute the distance between all tracked objects and all detected objects
-                    dists = np.full((len(self.trajectories),), np.inf)
-                    for tidx, tid in enumerate(tracked_ids):
-                        if tid in assigned_t:
-                            continue
-                        tracked_loc = self.trajectories[tid][-1]  # Get the last known position in the trajectory
-                        dists[tidx] = np.linalg.norm((tracked_loc.center[0] - rect.center[0], tracked_loc.center[1] - rect.center[1]))
+            # Find the center of every bboxes
+            centers = bboxes[:, :2] + bboxes[:, 2:] / 2
+            
+            # Need to add a dimension to fit NorFair input format
+            centers = np.expand_dims(centers, axis=1)
 
-                    # If there are no tracked objects close, just move on
-                    if dists.min() > 30:
-                        continue
+            # Declare the relevant detections
+            detections = [Detection(center) for center in centers]
 
-                    # Assign the detected object to the closest tracked object
-                    min_tidx = dists.argmin()
-                    tid = tracked_ids[min_tidx]
-                    self.trajectories[tid].append(rect)
-                    assigned_d.add(ridx)
-                    assigned_t.add(tid)
+            # Update tracker
+            tracked_objs = self._tracker.update(detections)
+            # TODO: Remove next (temporary) line
 
-                    # Get the instantaneous center of rotation
-                    icr = self.get_icr(tid)
-                    if icr is not None:
-                        if tid not in self.icrs:
-                            self.icrs[tid] = [icr]
-                        else:
-                            self.icrs[tid].append(icr)
+            # TODO: Update list of world positions for all tracked objects
+            #       Or should we declare properties to access the tracked objects instead?
+            #       Or We can declare internal objects to keep track of icrs, positions, speeds and acceleration?
 
-                    if len(assigned_t) == len(tracked_ids):
-                        break
-
-            # Treat all remaining rectangles as new objects
-            new = set(range(len(rrects))).difference(assigned_d)
-            for idx in new:
-                self.trajectories[self._next_id] = [rrects[idx]]
-                self.starts[self._next_id] = self._nb_frames
-                self._next_id += 1
-
-        # Increase the number of processed frames
-        self._nb_frames += 1
+            # TODO: Update list of ICR positions for all tracked objects
 
     def get_icr(self, obj_id):
         """Computes the Instantaneous Center of Rotation based on the object's location in three consecutive frames."""
@@ -363,4 +343,28 @@ class MvTracker(object):
             return (int(x), int(y))
         except ZeroDivisionError:
             return None
+
+
+class VideoIterator(cv.VideoCapture):
+    """Turns OpenCV's video capture into a fully managed iterator."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.release()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        # Make sure the stream is opened
+        if not self.isOpened():
+            raise StopIteration
+
+        # Read and return the next frame if possible
+        ret, frame = self.read()
+        if not ret:
+            raise StopIteration
+        return frame
 
