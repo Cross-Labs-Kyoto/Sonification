@@ -85,7 +85,7 @@ if __name__ == "__main__":
         video_in = str(Path(args.filename).expanduser().resolve())
 
     # Instantiate model
-    model = Speed2SoundModel(f_min=100, f_max=300)
+    model = Speed2SoundModel(f_min=np.random.uniform(low=20, high=500), f_max=np.random.uniform(low=500, high=20000), decay=np.random.random())
     
     # Load the parameters if necessary
     if args.load is not None:
