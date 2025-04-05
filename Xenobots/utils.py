@@ -357,6 +357,7 @@ class MvTracker(object):
 
     @property
     def tracked_objects(self):
+        """Return the list of actively [TrackedObjects](https://tryolabs.github.io/norfair/2.2/reference/tracker/#norfair.tracker.TrackedObject)."""
         objs = self._tracker.get_active_objects()
         if objs is None:
             return []
