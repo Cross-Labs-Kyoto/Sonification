@@ -117,46 +117,42 @@ if __name__ == "__main__":
             optimizer.zero_grad()
 
             # Process the video and generate audio output
-            global_freqs = []
+            freqs = []
             try:
                 for frame in vi:
                     # Track objects
                     tracker.track(frame)
 
-                    # TODO: Can we assume that only a single object will be present?
-                    local_freqs = []
-                    chunks = []
-                    for obj in tracker.tracked_objects:
-                        if obj.id in tracker.rel_pos:
-                            # Compute the frequency
-                            old_pos, curr_pos = tracker.rel_pos[obj.id]
-                            theta = (curr_pos[1] - old_pos[1]) * fps
-                            freq = model(theta)
-                            local_freqs.append(freq)
+                    # We assume that only a single object is tracked
+                    # TODO: If assumption is not correct, then manage a list of models, and save their parameters accordingly
+                    try:
+                        obj = tracker.tracked_objects[0]
+                    except IndexError:
+                        continue
 
-                            # Generate the associated audio chunk
-                            chunks.append(librosa.tone(freq.detach().cpu().item(), sr=args.sample_rate, length=int(args.sample_rate/fps)))
+                    if obj.id in tracker.rel_pos:
+                        # Compute the frequency
+                        old_pos, curr_pos = tracker.rel_pos[obj.id]
+                        theta = (curr_pos[1] - old_pos[1]) * fps
+                        freq = model(theta)
 
-                    # Store the list of local frequencies
-                    global_freqs.append(local_freqs)
+                        # Generate the associated audio chunk
+                        prev_freq = freqs[-1].detach().cpu().item()
+                        curr_freq = freq.detach().cpu().item()
+                        chunk = librosa.chirp(fmin=prev_freq, fmax=curr_freq, sr=args.sample_rate, length=int(args.sample_rate/fps), linear=False).astype(np.float32)
 
-                    # Mix the chunks together
-                    chunks = np.array(chunks).mean(axis=0).astype(np.float32)
+                        # Store the list of local frequencies
+                        freqs.append(freq)
 
-                    # Apply fade in/out to avoid clipping noises
-                    # TODO: If too aggressive, find a better way to fade
-                    amp = np.log(np.linspace(1, np.exp(1), num=int(args.sample_rate / (2 * fps))))
-                    chunks *= np.hstack([amp, amp[::-1]])
-
-                    # Play the sound
-                    audio_out.write(chunks)
+                        # Play the sound
+                        audio_out.write(chunk)
                             
             except KeyboardInterrupt:
                 pass
             finally:
                 # Compute loss and optimize parameters
                 # TODO: provide the necessary targets to the loss function
-                loss = Loss(global_freqs, targ)
+                loss = Loss(freqs, targ)
                 loss.backward()
                 optimizer.step()
 
