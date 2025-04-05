@@ -135,7 +135,7 @@ if __name__ == "__main__":
                             local_freqs.append(freq)
 
                             # Generate the associated audio chunk
-                            chunks.append(librosa.tone(freq, sr=args.sample_rate, length=int(args.sample_rate/fps)))
+                            chunks.append(librosa.tone(freq.detach().cpu().item(), sr=args.sample_rate, length=int(args.sample_rate/fps)))
 
                     # Store the list of local frequencies
                     global_freqs.append(local_freqs)
