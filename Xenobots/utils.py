@@ -8,8 +8,6 @@ from norfair import Detection, Tracker, OptimizedKalmanFilterFactory
 from tqdm import tqdm
 from loguru import logger
 
-from settings import SAMPLE_RATE
-
 
 def get_video_meta(vc):
     width, height = int(vc.get(cv.CAP_PROP_FRAME_WIDTH)), int(vc.get(cv.CAP_PROP_FRAME_HEIGHT))
