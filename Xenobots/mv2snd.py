@@ -130,7 +130,7 @@ if __name__ == "__main__":
                         if obj.id in tracker.rel_pos:
                             # Compute the frequency
                             old_pos, curr_pos = tracker.rel_pos[obj.id]
-                            theta = (old_pos[1] - curr_pos[1]) * fps
+                            theta = (curr_pos[1] - old_pos[1]) * fps
                             freq = model(theta)
                             local_freqs.append(freq)
 
