@@ -53,12 +53,12 @@ def get_rotated_bbox(contour):
 
     return rect
 
+def arctan(y,x):
+    # Return the angle in radians in the range [0, 2pi], starting at (0, 1) and going counter-clockwise
+    return np.arctan2(y, x) + np.abs(np.sign(np.arctan2(y, x)) - 1) * np.pi
 
 def cart_to_polar(x, y):
-    ang = np.arctan2(y, x)
-    # Translate the [-pi, pi] angle into [0, 2pi]
-    ang += np.abs(np.sign(ang) - 1) * np.pi
-    return np.linalg.norm((x, y)), ang
+    return np.linalg.norm((x, y)), arctan(y, x)
 
 
 def polar_to_cart(r, theta):
