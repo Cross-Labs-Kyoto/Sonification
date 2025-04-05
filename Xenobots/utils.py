@@ -55,7 +55,10 @@ def get_rotated_bbox(contour):
 
 
 def cart_to_polar(x, y):
-    return np.linalg.norm((x, y)), np.arctan2(y, x)
+    ang = np.arctan2(y, x)
+    # Translate the [-pi, pi] angle into [0, 2pi]
+    ang += np.abs(np.sign(ang) - 1) * np.pi
+    return np.linalg.norm((x, y)), ang
 
 
 def polar_to_cart(r, theta):
