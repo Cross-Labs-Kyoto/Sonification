@@ -69,43 +69,6 @@ def get_tl_br(rect):
     return (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3])
 
 
-def crossfade(sig1, sig2, dur):
-    """Attenuates one signal, while increasingly introducing the second one over a given duration.
-
-    Parameters
-    ----------
-    sig1: np.ndarray
-        An array containing the samples for the first signal.
-
-    sig2: np.ndarray
-        An array containing the samples for the first signal.
-
-    dur: float
-        The amount of time (in seconds) over which to crossfade the signals.
-
-    Returns
-    -------
-    np.ndarray
-        A new signal made of the two given ones fading in and out over an interval of time.
-
-    """
-
-    # Determine the number of samples over which crossfade will happen
-    nb_samples = min(int(dur * SAMPLE_RATE), sig1.shape[0], sig2.shape[0])
-
-    # Define the amplitude decay/increase
-    amp = np.linspace(0, 1, num=nb_samples)
-
-    # Fade out the first signal
-    cross = sig1[-nb_samples:] * amp
-
-    # Fade in the second signal
-    cross += sig2[:nb_samples] * amp[::-1]
-
-    # Combine everything into final signal
-    return np.concatenate([sig1[:-nb_samples], cross, sig2[nb_samples:]], axis=0)
-
-
 def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
     # Extract information about the video stream
     vid_w, vid_h, fps, tot_frames = get_video_meta(video_capture)
