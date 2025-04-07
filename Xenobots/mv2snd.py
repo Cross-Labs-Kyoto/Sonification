@@ -64,7 +64,8 @@ class Speed2SoundModel(object):
 if __name__ == "__main__":
     # Define a command line interface
     parser = ArgumentParser()
-    parser.add_argument('filename', type=str, help='Either the name of a video file to process, or a camera ID.')
+    parser.add_argument('filename', type=str,
+                        help='Either the name of a video file to process, or a camera ID.')
     parser.add_argument('-t', '--thres', dest='canny_thres', type=int, default=40)
     parser.add_argument('-o', '--output', dest='out', type=str, default='default',
                         help='Either the relative path to a file or the name of a device to which the audio will be written.')
@@ -104,7 +105,10 @@ if __name__ == "__main__":
     try:
         video_in = int(args.filename)
     except ValueError:
-        video_in = str(Path(args.filename).expanduser().resolve())
+        video_in = Path(args.filename).expanduser().resolve()
+        if not video_in.is_file():
+            raise RuntimeError(f'The provided video file does not exist or is not a file: {video_in}')
+        video_in = str(video_in)
 
     # Instantiate model
     model = Speed2SoundModel(f_min=np.random.uniform(low=20, high=500), f_max=np.random.uniform(low=500, high=20000), decay=np.random.random())
