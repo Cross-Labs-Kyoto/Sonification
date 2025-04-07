@@ -1339,6 +1339,54 @@ files = [
 ]
 
 [[package]]
+name = "pedalboard"
+version = "0.9.16"
+description = "A Python library for adding effects to audio."
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "pedalboard-0.9.16-cp310-cp310-macosx_10_14_x86_64.whl", hash = "sha256:9d68f2a0816f4b611ef9e6fd2d216c0f89840c7aa855efdb499b63b5e8014009"},
+    {file = "pedalboard-0.9.16-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:2ac0f9c57a89c2e437a41288cd5da42d65d737457848fd95adfba7c97bb99914"},
+    {file = "pedalboard-0.9.16-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:89270613982174fb0ce6d10e6f251d78ef15aa21438c22753db87d974d5e2b27"},
+    {file = "pedalboard-0.9.16-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5712fe0f07eb0a0955681b867c2aff7f57e3d4d8dbf05a3d6f1eb0404cb0e679"},
+    {file = "pedalboard-0.9.16-cp310-cp310-musllinux_1_1_aarch64.whl", hash = "sha256:b040271cc9eadaa14f0a0afdc2393e8b11fe1ed6967de0ed2957b3dc0b2d1431"},
+    {file = "pedalboard-0.9.16-cp310-cp310-musllinux_1_1_x86_64.whl", hash = "sha256:29ba6f8d785060f4c2e9e659d3ab45559c1ce222b468dc1676f6345dcc17b6df"},
+    {file = "pedalboard-0.9.16-cp310-cp310-win_amd64.whl", hash = "sha256:6f82a4941e9ad72a0c672994fa45453521eedf05081367b77c0a09cdabc25b9c"},
+    {file = "pedalboard-0.9.16-cp311-cp311-macosx_10_14_x86_64.whl", hash = "sha256:57f1a78e9d253263360d8de1d6bc24d37f827511fae63035a4d5b0477a891401"},
+    {file = "pedalboard-0.9.16-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:c90e80f3b8a6397b4918aabf4635053b8c62d55414038defa9906c378443f2f0"},
+    {file = "pedalboard-0.9.16-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8873a52e06b41336f06f93306bb113545485bbf3759f30d5f6bf887c5056902d"},
+    {file = "pedalboard-0.9.16-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e870cac507fdae73fa0bfbe6d1d5de380228862d4eba9164d1615e9bccaf6d04"},
+    {file = "pedalboard-0.9.16-cp311-cp311-win_amd64.whl", hash = "sha256:abdb338b9231c509e0ed900507f128a65a79a272c3c284fa3912c53751a4f3c3"},
+    {file = "pedalboard-0.9.16-cp312-cp312-macosx_10_14_universal2.whl", hash = "sha256:0f352356fdb8e6246a0577a62ce003781c2a5fa9ba0f6b09cf344e5a51142288"},
+    {file = "pedalboard-0.9.16-cp312-cp312-macosx_10_14_x86_64.whl", hash = "sha256:4b92ab1c940d27dcd520cd376a61aa99d442edd27b6787ee6193ad7f8bd799e5"},
+    {file = "pedalboard-0.9.16-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:2b6161453ac8f8f28f67b49eeaf58f41448f61b54a73e151c0a59626ab574d08"},
+    {file = "pedalboard-0.9.16-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7e32ad20a3ffc13324cbf17a1c3fae9c08a391edabcfa371d2ad0ed08bedfffb"},
+    {file = "pedalboard-0.9.16-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:eac5dd6627bbd8c239c916bffbb7c5d9588d99867591d2e43ab6efd79f75ccbc"},
+    {file = "pedalboard-0.9.16-cp312-cp312-musllinux_1_1_aarch64.whl", hash = "sha256:3a523fba1756d1bed0f5e3ae9816d70ffa971457f67adf4efd03cca0310a879a"},
+    {file = "pedalboard-0.9.16-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:dece4acbc8d43f6a0b44c4af48fdeb90c181890babe88c77cfcee726fbb73865"},
+    {file = "pedalboard-0.9.16-cp312-cp312-win32.whl", hash = "sha256:3d2a815c0fd045a252fdfa57baa9bf35e7dff5e1ddcda8bf1a9ae59b53d3e798"},
+    {file = "pedalboard-0.9.16-cp312-cp312-win_amd64.whl", hash = "sha256:6baf122b22403e5bff2477f37e17e457ad7db1621948debf558f8b2cfe64f39e"},
+    {file = "pedalboard-0.9.16-cp313-cp313-macosx_10_14_x86_64.whl", hash = "sha256:b84fe32ab13b50076e21d1e79bbef7c00f43bb3623c84d7ced1022b0d9ed55ca"},
+    {file = "pedalboard-0.9.16-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:031e6833c5983c3fe0a96bc4ff04790663a9e95a01c402828bd5a4eff4b8b541"},
+    {file = "pedalboard-0.9.16-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:4be376b2727341cac2540e9f0f3b1d0bb2449ceed7f92399bcfabae052ae7a1a"},
+    {file = "pedalboard-0.9.16-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0e46117dc1b62af13bdd4a7ac53b6d92b3a001f2c68ce89bacced9bfcaafe295"},
+    {file = "pedalboard-0.9.16-cp313-cp313-win_amd64.whl", hash = "sha256:1eea9fb96672014a663fa7309133c6506ebdd28d84249a7708eae18c0cabb35c"},
+    {file = "pedalboard-0.9.16-cp313-cp313t-macosx_10_14_x86_64.whl", hash = "sha256:8ffadf7de250d4ccc45929f88b49979d9243077b910fb352eb3cc7231f240d8e"},
+    {file = "pedalboard-0.9.16-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:a260d2c5bc79f90340e5eef985919da92188dea9b493b4756d622f6e7e151028"},
+    {file = "pedalboard-0.9.16-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8abf69fe280c0c834750072692d5ebb3b4ba7ef49d50b369946d4743a723bb49"},
+    {file = "pedalboard-0.9.16-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:03e73da46d6678a8adbd1ebc70bf38e4316918e44514eb9b1d7989bfb43cb30c"},
+    {file = "pedalboard-0.9.16-cp39-cp39-macosx_10_14_x86_64.whl", hash = "sha256:16b2610ad1923e0f49d1e6923c2b740c8da9a2db2c5315f56e857b7a862f1fdd"},
+    {file = "pedalboard-0.9.16-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:c47265698416d6e1042c21eaf027eb643f2e4f83421383f7ab783f7fb9320bd4"},
+    {file = "pedalboard-0.9.16-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:822f3184dd09f07c29b7b0d4281fa834d9a94ed8aa86037c0c739e8907132f9f"},
+    {file = "pedalboard-0.9.16-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8635d57f72be0f2eb8ca523dacec5bd13736ccffe5f70109c586a6b750fdeb33"},
+    {file = "pedalboard-0.9.16-cp39-cp39-win_amd64.whl", hash = "sha256:d46f917322065fe780778c416e016ab79e6a3d8ba75df9a71ae368142aba3443"},
+]
+
+[package.dependencies]
+numpy = "*"
+
+[[package]]
 name = "pillow"
 version = "11.1.0"
 description = "Python Imaging Library (Fork)"
@@ -1949,4 +1997,4 @@ dev = ["black (>=19.3b0) ; python_version >= \"3.6\"", "pytest (>=4.6.2)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "aaa2ae369cb5acaebc6ba1dc6887dd919934796e61bb0c5fb49c524f74121fe5"
+content-hash = "d384b964d412f34bf3955ca9a81f6b98320ae699423635180400d67c022f7992"
