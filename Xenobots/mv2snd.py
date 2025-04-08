@@ -74,7 +74,7 @@ if __name__ == "__main__":
     parser.add_argument('-l', '--learn_rate', dest='l_rate', type=float, default=1e-3,
                         help="The length of the step for each iteration of the gradient descent algorithm.")
     parser.add_argument('-v', '--volume', dest='vol', type=float, default=0.5,
-                        help="The volume in percentage at which to output audio. Defaults to: 50%")
+                        help="The volume in percentage at which to output audio. Defaults to: 0.5")
     parser.add_argument('-r', '--sample_rate', dest='sample_rate', type=int, default=44100,
                         help="The sample rate to use for the audio output.")
     parser.add_argument('--list', dest='lst_devices', action='store_true',
@@ -177,7 +177,10 @@ if __name__ == "__main__":
                             freqs.append(freq)
 
                             # Play the sound
-                            audio_out.write(chunk * amp, sample_rate=args.sample_rate)
+                            if isinstance(audio_out, AudioStream):
+                                audio_out.write(chunk * amp, sample_rate=args.sample_rate)
+                            else:
+                                audio_out.write(chunk * amp)
                                 
                 except KeyboardInterrupt:
                     pass
