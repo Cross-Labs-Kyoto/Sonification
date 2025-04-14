@@ -3,6 +3,8 @@ from math import pow
 from collections import deque
 
 import numpy as np
+import torch
+from torch import nn
 import cv2 as cv
 from norfair import Detection, Tracker, OptimizedKalmanFilterFactory
 from tqdm import tqdm
@@ -328,7 +330,6 @@ class MvTracker(object):
         return objs
         
 
-
 class VideoIterator(cv.VideoCapture):
     """Turns OpenCV's video capture into a fully managed iterator."""
 
@@ -352,3 +353,288 @@ class VideoIterator(cv.VideoCapture):
             raise StopIteration
         return frame
 
+
+class SoundMapper(nn.Module):
+    """Defines a trainable mapping between xenobot movement features, and sound (more specifically, frequency and amplitude)."""
+
+    def __init__(self, nb_ins: int, hidden_lays: list[int],
+                 l_rate: float = 1e-3,
+                 fmin: int = 20, fmax: int = 20000,
+                 amin: float = 0, amax: float = 1,
+                 device: str = 'cuda'):
+        """Declares a multi-layer perceptron linking input features to frequency and amplitude.
+
+        Parameters
+        ----------
+            nb_ins: int
+                The number of inputs.
+
+            hidden_lays: list[int]
+                A list of sizes for the hidden layers. If empty, the input and output layers will be connected directly.
+
+            nb_outs: int, optional
+                The number of output layers.
+
+            l_rate: float, optional
+                The step size for updating the network's parameters.
+
+            fmin: int, optional
+                The minimum frequency of the generated sound.
+
+            fmax: int, optional
+                The maximum frequency of the generated sound.
+
+            amin: int, optional
+                The minimum amplitude of the generated sound.
+
+            amax: int, optional
+                The maximum amplitude of the generated sound.
+
+            device: {'cuda', 'cpu', 'auto'}, optional
+                The type of device to use for computation.
+
+        """
+
+        # Initialize the parent class
+        super().__init__()
+
+        # We assume only two outputs
+        nb_out = 2
+
+        # Define the device to use for computation
+        if device in ['cuda', 'cpu']:
+            self._device = torch.device(device)
+        else:
+            self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+        # Define the network's architecture
+        if len(hidden_lays) == 0:
+            self._linear = nn.Sequential(
+                nn.Linear(nb_ins, out_features=nb_out, device=self._device),
+                nn.Sigmoid()
+            )
+        else:
+            self._linear = nn.Sequential()
+            in_size = nb_ins
+            for hid_size in hidden_lays:
+                # Add layer
+                self._linear.append(nn.Linear(in_size, hid_size, device=self._device))
+                self._linear.append(nn.ReLU(inplace=True))  # Could be replaced with Tanh()
+                self._linear.append(nn.LayerNorm(hid_size, device=self._device))
+                # Record size for next input
+                in_size = hid_size
+
+            # Add output layer
+            self._linear.append(nn.Linear(in_size, nb_out, device=self._device))
+            self._linear.append(nn.Sigmoid())
+
+        # Define optimizer
+        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
+
+        # Keep track of the frequency and amplitude intervals
+        self._freqs = [fmin, fmax]
+        self._amps = [amin, amax]
+
+    def forward(self, x):
+        # Make sure the input is on the right device
+        if x.device != self._device:
+            x = x.to(self._device)
+        
+        # Propagate the input through the multi-layer perceptron
+        out = self._linear(x)
+
+        # Scale and return the frequency and amplitude
+        freq = out[0] * (self._freqs[1] - self._freqs[0]) + self._freqs[0]
+        amp = out[1] * (self._amps[1] - self._amps[0]) + self._amps[0]
+        return freq, amp
+
+    @property
+    def fmin(self):
+        return self._freqs[0]
+
+    @property
+    def fmax(self):
+        return self._freqs[1]
+
+    @property
+    def amin(self):
+        return self._amps[0]
+
+    @property
+    def amax(self):
+        return self._amps[1]
+
+    @fmin.setter
+    def fmin(self, val: int):
+        if val >= self._freqs[1]:
+            raise ValueError(f'The minimum frequency should be less than the maximum, but got: {val} (>= {self._freqs[1]}')
+        else:
+            self._freqs[0] = val
+
+    @fmax.setter
+    def fmax(self, val: int):
+        if val <= self._freqs[0]:
+            raise ValueError(f'The maximum frequency should be greater than the maximum, but got: {val} (<= {self._freqs[0]}')
+        else:
+            self._freqs[1] = val
+
+    @amin.setter
+    def amin(self, val: float):
+        if val >= self._amps[1]:
+            raise ValueError(f'The minimum amplitude should be less than the maximum, but got: {val} (>= {self._amps[1]}')
+        else:
+            self._amps[0] = max(0, val)
+
+    @amax.setter
+    def amax(self, val: float):
+        if val <= self._amps[0]:
+            raise ValueError(f'The maximum amplitude should be greater than the maximum, but got: {val} (<= {self._amps[0]}')
+        else:
+            self._amps[1] = min(1, val)
+
+
+class RecurrentSoundMapper(SoundMapper):
+    """Defines a trainable recurrent mapping between xenobot movement features and sound."""
+
+    def __init__(self, nb_ins: int, hidden_lays: list[int], nb_lstm: int, size_lstm: int,
+                 l_rate: float = 1e-3,
+                 fmin: int = 20, fmax: int = 20000,
+                 amin: float = 0, amax: float = 1,
+                 device: str = 'cuda'):
+        """Declares a lstm-based network linking input features to frequency and amplitude.
+
+        Parameters
+        ----------
+            nb_ins: int
+                The number of inputs.
+
+            hidden_lays: list[int]
+                A list of sizes for the hidden layers. If empty, the input and output layers will be connected directly.
+
+            nb_lstm: int
+                The number of lstm layers to include in the network.
+
+            size_lstm: int
+                The size of all lstm layers.
+
+            nb_outs: int, optional
+                The number of output layers.
+
+            l_rate: float, optional
+                The step size for updating the network's parameters.
+
+            fmin: int, optional
+                The minimum frequency of the generated sound.
+
+            fmax: int, optional
+                The maximum frequency of the generated sound.
+
+            amin: int, optional
+                The minimum amplitude of the generated sound.
+
+            amax: int, optional
+                The maximum amplitude of the generated sound.
+
+            device: {'cuda', 'cpu', 'auto'}, optional
+                The type of device to use for computation.
+
+        """
+
+        # Make sure the number and size of LSTM is non-zero
+        assert nb_lstm != 0 and size_lstm != 0, 'The number and size of lstm layers cannot be zero. Use a standard `SoundMapper()` if this is what you want.'
+
+        # Initialize the SoundMapper
+        super().__init__(size_lstm, hidden_lays, l_rate, fmin, fmax, amin, amax, device)
+
+        # Declare the recurrent portion of the network
+        self._lstm = nn.LSTM(nb_ins, size_lstm, num_layers=nb_lstm, batch_first=True, device=self._device)
+
+        # Redefine the optimizer
+        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
+        
+
+    def forward(self, x):
+        # Make sure the input is on the same device as the model
+        if x.device != self._device:
+            x = x.to(self._device)
+
+        # Propagate the input through the lstm
+        # Discard the hidden and cell states
+        out, _ = self._lstm(x)
+
+        # Return the result of propagating the last hidden state through the linear portion
+        return super(out[:, -1])
+
+
+class AttentionSoundMapper(SoundMapper):
+    """Defines a trainable attention-based mapping between xenobot movement features and sound."""
+
+    def __init__(self, nb_ins: int, hidden_lays: list[int], nb_heads: int, embed_size: int,
+                 l_rate: float = 1e-3,
+                 fmin: int = 20, fmax: int = 20000,
+                 amin: float = 0, amax: float = 1,
+                 device: str = 'cuda'):
+        """Declares an attention-based mapper linking input features to frequency and amplitude.
+
+        Parameters
+        ----------
+            nb_ins: int
+                The number of inputs.
+
+            hidden_lays: list[int]
+                A list of sizes for the hidden layers. If empty, the input and output layers will be connected directly.
+
+            nb_heads: int
+                The number of attention heads to use. Keep in mind that each attention head will have a dimension of `embed_size // nb_heads`.
+
+            embed_size: int
+                The size of the embedding vector.
+            nb_outs: int, optional
+                The number of output layers.
+
+            l_rate: float, optional
+                The step size for updating the network's parameters.
+
+            fmin: int, optional
+                The minimum frequency of the generated sound.
+
+            fmax: int, optional
+                The maximum frequency of the generated sound.
+
+            amin: int, optional
+                The minimum amplitude of the generated sound.
+
+            amax: int, optional
+                The maximum amplitude of the generated sound.
+
+            device: {'cuda', 'cpu', 'auto'}, optional
+                The type of device to use for computation.
+
+        """
+
+        # Initialize the parent SoundMapper
+        super().__init__(embed_size, hidden_lays, l_rate, fmin, fmax, amin, amax, device)
+
+        # Define embedding and attention layer
+        # Assumes an MLP embedding layer
+        self._embed = nn.Sequential(
+            nn.Linear(nb_ins, embed_size, device=self._device),
+            nn.ReLU(inplace=True),
+            nn.LayerNorm(embed_size, device=self._device)
+        )
+
+        self._attn = nn.MultiheadAttention(embed_size, nb_heads, batch_first=True, device=self._device)
+
+        # Update the optimizer's definition
+        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
+
+    def forward(self, x):
+        # Make sure the input is on the same device as the model
+        if x.device != self._device:
+            x = x.to(self._device)
+
+        # Propagate the input through the embedding and attention layers
+        out = self._attn(self.embed(x))
+
+        # Return the frequency and amplitude
+        return super(out)
