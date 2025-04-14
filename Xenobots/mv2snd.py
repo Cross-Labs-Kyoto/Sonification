@@ -77,6 +77,8 @@ if __name__ == "__main__":
                         help="The volume in percentage at which to output audio. Defaults to: 0.5")
     parser.add_argument('-r', '--sample_rate', dest='sample_rate', type=int, default=44100,
                         help="The sample rate to use for the audio output.")
+    parser.add_argument('-s', '--skip', dest='f_skip', type=float, default=0,
+                        help='The number of seconds to skip between tracking events. The provided value should be a float > 0.')
     parser.add_argument('--list', dest='lst_devices', action='store_true',
                         help='List all available output audio devices.')
 
@@ -153,7 +155,12 @@ if __name__ == "__main__":
                 # Process the video and generate audio output
                 freqs = []
                 try:
-                    for frame in vi:
+                    for f_idx, frame in enumerate(vi):
+                        # If requested skip frames
+                        if args.f_skip != 0:
+                            if f_idx % int(args.f_skip * fps) != 0:
+                                continue
+
                         # Track objects
                         tracker.track(frame)
 
