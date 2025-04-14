@@ -17,7 +17,7 @@ def get_video_meta(vc):
     tot_frames = int(vc.get(cv.CAP_PROP_FRAME_COUNT))
 
     return width, height, fps, tot_frames
-    
+
 
 def get_contours(frame, thres):
     # Convert color to gradients of gray
@@ -133,7 +133,7 @@ def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
             # Compute the left, right panning
             left = -(np.cos(np.abs(curr_polar[1]))).item()
             right = (np.cos(np.abs(curr_polar[1]))).item()
-            
+
             if tid not in pans:
                 pans[tid] = {'left': [0] * tracker.starts[tid] + [left],
                              'right': [0] * tracker.starts[tid] + [right]}
@@ -211,7 +211,7 @@ class MvTracker(object):
 
     def track(self, frame):
         """Builds trajectories for detected objects.
-        
+
         Parameters
         ----------
         frame: numpy.ndarray
@@ -219,7 +219,7 @@ class MvTracker(object):
 
         """
 
-        
+
         # Find contours
         contours, hierarchy = get_contours(frame, self._canny_thres)
 
@@ -251,13 +251,13 @@ class MvTracker(object):
 
             if len(indices) > 10:
                 logger.warning(f'Detected an awful lot of objects ({len(indices)})!!! Increase the canny threshold for better detection.')
-            
+
             # Keep only non-overlapping bboxes
             bboxes = bboxes[indices]
 
             # Find the center of every bboxes
             centers = bboxes[:, :2] + bboxes[:, 2:] / 2
-            
+
             # Need to add a dimension to fit NorFair input format
             centers = np.expand_dims(centers, axis=1)
 
@@ -328,7 +328,7 @@ class MvTracker(object):
         if objs is None:
             return []
         return objs
-        
+
 
 class VideoIterator(cv.VideoCapture):
     """Turns OpenCV's video capture into a fully managed iterator."""
@@ -429,7 +429,7 @@ class SoundMapper(nn.Module):
             self._linear.append(nn.Sigmoid())
 
         # Define optimizer
-        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
+        self.optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
 
         # Keep track of the frequency and amplitude intervals
         self._freqs = [fmin, fmax]
@@ -439,9 +439,9 @@ class SoundMapper(nn.Module):
         # Make sure the input is on the right device
         if x.device != self._device:
             x = x.to(self._device)
-        
+
         # Propagate the input through the multi-layer perceptron
-        out = self._linear(x)
+        out = self._linear(x).squeeze()
 
         # Scale and return the frequency and amplitude
         freq = out[0] * (self._freqs[1] - self._freqs[0]) + self._freqs[0]
@@ -550,8 +550,8 @@ class RecurrentSoundMapper(SoundMapper):
         self._lstm = nn.LSTM(nb_ins, size_lstm, num_layers=nb_lstm, batch_first=True, device=self._device)
 
         # Redefine the optimizer
-        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
-        
+        self.optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
+
 
     def forward(self, x):
         # Make sure the input is on the same device as the model
@@ -563,7 +563,7 @@ class RecurrentSoundMapper(SoundMapper):
         out, _ = self._lstm(x)
 
         # Return the result of propagating the last hidden state through the linear portion
-        return super(out[:, -1])
+        return super().forward(out[:, -1, :])
 
 
 class AttentionSoundMapper(SoundMapper):
@@ -626,7 +626,7 @@ class AttentionSoundMapper(SoundMapper):
         self._attn = nn.MultiheadAttention(embed_size, nb_heads, batch_first=True, device=self._device)
 
         # Update the optimizer's definition
-        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
+        self.optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
 
     def forward(self, x):
         # Make sure the input is on the same device as the model
@@ -637,4 +637,4 @@ class AttentionSoundMapper(SoundMapper):
         out = self._attn(self.embed(x))
 
         # Return the frequency and amplitude
-        return super(out)
+        return super().forward(out)
