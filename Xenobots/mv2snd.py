@@ -49,7 +49,7 @@ if args.out in AudioStream.output_device_names:
     audio_out_cls = AudioStream
     audio_out_kwargs = dict(output_device_name=args.out, num_output_channels=1, sample_rate=args.sample_rate) 
 else:
-    fname = Path(args.out).expanduser().resolve()
+    fname = Path(args.out).expanduser().resolve().with_suffix('.mp3')
     audio_out_cls = AudioFile
     audio_out_kwargs = dict(filename=str(fname), samplerate=args.sample_rate, num_channels=1)
 
@@ -143,7 +143,6 @@ while True:
             finally:
                 # Compute loss and optimize parameters
                 # TODO: provide the necessary targets to the loss function
-                print(preds)
                 loss = Loss(preds, targ)
                 loss.backward()
                 model.optim.step()
