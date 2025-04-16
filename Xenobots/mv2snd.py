@@ -29,6 +29,8 @@ parser.add_argument('-r', '--sample_rate', dest='sample_rate', type=int, default
                     help="The sample rate to use for the audio output.")
 parser.add_argument('-s', '--skip', dest='f_skip', type=float, default=0,
                     help='The number of seconds to skip between tracking events. The provided value should be a float > 0.')
+parser.add_argument('-d', '--debug', dest='debug', action='store_true',
+                    help='A flag indicating whether to execute the tracker in debug mode or not.')
 parser.add_argument('--list', dest='lst_devices', action='store_true',
                     help='List all available output audio devices.')
 
@@ -85,7 +87,7 @@ while True:
             vid_w, vid_h, fps, tot_frames = get_video_meta(vi)
 
             # Instantiate a new movement tracker
-            tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50, canny_thres=args.canny_thres)
+            tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50, canny_thres=args.canny_thres, debug=args.debug)
             
             # Rest the gradient
             model.optim.zero_grad()
