@@ -165,7 +165,7 @@ def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
 class MvTracker(object):
     """Defines an edge detection-based tracker for moving objects."""
 
-    def __init__(self, width, height, max_dist, offset_x=0, offset_y=0, canny_thres=40, nms_thres=0.3):
+    def __init__(self, width, height, max_dist, offset_x=0, offset_y=0, canny_thres=40, nms_thres=0.3, debug=False):
         """Initializes attributes required for tracking objects.
 
         Parameters
@@ -191,6 +191,9 @@ class MvTracker(object):
         nms_thres: float
             The percentage of overlap between shapes for the non-maximum suppression algorithm to keep only the biggest bounding box.
 
+        debug: bool
+            A flag indicating whether to execute the tracker in debug mode or not.
+
         """
         super().__init__()
 
@@ -209,6 +212,11 @@ class MvTracker(object):
         self.frame_center = np.array((offset_x + width // 2, offset_y + height // 2))
         self._max_dist = max_dist
 
+        self._dbg = debug
+        # Create a named window to display the tracking results
+        if debug:
+            cv.namedWindow('Debug', cv.WINDOW_NORMAL | cv.WINDOW_KEEPRATIO | cv.WINDOW_GUI_NORMAL)
+
     def track(self, frame):
         """Builds trajectories for detected objects.
         
@@ -222,6 +230,10 @@ class MvTracker(object):
         
         # Find contours
         contours, hierarchy = get_contours(frame, self._canny_thres)
+
+        # Draw contours if necessary
+        if self._dbg:
+            frame = cv.drawContours(frame, contours, -1, (0, 255, 0))
 
         # Get the rotated rectangles and associated bounding boxes
         bboxes = []
@@ -277,6 +289,11 @@ class MvTracker(object):
                     self.abs_pos[obj.id] = deque(maxlen=3)
                 self.abs_pos[obj.id].append(obj.estimate.squeeze(axis=0))
 
+                # If in debug mode display absolute position
+                if self._dbg:
+                    x, y = obj.estimate.squeeze(axis=0).astype(int)
+                    frame = cv.circle(frame, (x, y), 3, (0, 0, 255), -1)
+
                 # Get the ICR if possible
                 icr = self.get_icr(obj.id)
                 if icr is not None:
@@ -287,6 +304,15 @@ class MvTracker(object):
                     old_rel_pos = cart_to_polar(*(old_pos - icr))
                     curr_rel_pos = cart_to_polar(*(curr_pos - icr))
                     self.rel_pos[obj.id] = (old_rel_pos, curr_rel_pos)
+
+            # If in debug mode, display frame with all information
+            if self._dbg:
+                # Draw exclusion zone
+                frame = cv.circle(frame, self.frame_center.astype(int), int(self._max_dist), (255, 0, 0))
+
+                # Blit
+                cv.imshow('Debug', frame)
+                cv.pollKey()
 
     def get_icr(self, obj_id):
         """Computes the Instantaneous Center of Rotation based on the object's location in three consecutive frames."""
