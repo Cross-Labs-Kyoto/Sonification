@@ -8,6 +8,7 @@ import librosa
 from pedalboard.io import AudioFile, AudioStream
 from loguru import logger
 
+from Xenobots.information import mutual_information_matrix, minimum_information_bipartition, local_phi_id, local_phi_r
 from utils import MvTracker, get_video_meta, VideoIterator
 from settings import ROOT_DIR
 
@@ -59,6 +60,28 @@ class Speed2SoundModel(object):
             # Only set valid attributes, the rest is gracefully ignored
             if hasattr(self, k):
                 setattr(self, k, v)
+
+
+def causal_emergence_loss(freqs: list[float]):
+    """
+
+    Parameters
+    ----------
+    freqs: the frequencies (one per video frame) output by the model as a function of the rotational velocity.
+
+    Returns
+    -------
+
+    """
+    data = np.array(freqs, dtype=np.float64).T  # (n x T), with n number of bots and T number of video frames
+    mi_mat = mutual_information_matrix(data, alpha=1, bonferonni=False, lag=1)
+    mib = minimum_information_bipartition(mi_mat, noise=True)
+    component_1 = data[mib[0], :].mean(axis=0)
+    component_2 = data[mib[1], :].mean(axis=0)
+    data_reduced = np.vstack((component_1, component_2))
+    phi_results = local_phi_id(0, 1, data_reduced)
+    phi_r_traj = local_phi_r(phi_results)  # (T-1,) array, with T number of video frames
+    return np.median(phi_r_traj)  # need an aggregate statistic as loss function, like the median
 
 
 if __name__ == "__main__":
@@ -127,11 +150,9 @@ if __name__ == "__main__":
             logger.error(f'The provided weight file, does not exist or is not a file: {weight_file}')
 
     # Declare the optimizer
-    # TODO: Modify the parameters to suit your needs
     optimizer = torch.optim.SGD(model.parameters(), args.l_rate, maximize=False)
 
-    # TODO: Declare the loss
-    Loss = None
+    loss = causal_emergence_loss
 
     # Loop forever (or until the user presses ctrl+c and asks to quit the program)
     while True:
@@ -196,7 +217,7 @@ if __name__ == "__main__":
                 finally:
                     # Compute loss and optimize parameters
                     # TODO: provide the necessary targets to the loss function
-                    loss = Loss(freqs, targ)
+                    loss = loss(freqs)
                     loss.backward()
                     optimizer.step()
 
