@@ -94,7 +94,7 @@ while True:
 
             # Pre-compute the amplitude to apply to all audio chunks
             # This is to prevent any clipping noise between chunks
-            fade_len = int(args.sample_rate/(10*fps))
+            fade_len = int(args.sample_rate/(5*fps))
             full_len = int(args.sample_rate/fps) - 2 * fade_len
             log_amp = np.log(np.linspace(1, np.exp(1), fade_len))
             log_amp = np.hstack([log_amp, np.ones((full_len, )), log_amp[::-1]]).astype(np.float32)
