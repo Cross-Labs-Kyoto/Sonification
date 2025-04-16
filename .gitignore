@@ -5,6 +5,7 @@
 .python-version
 Data/
 *test*
+Test/
 *.cmd
 
 # Byte-compiled / optimized / DLL files
