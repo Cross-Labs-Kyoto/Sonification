@@ -358,10 +358,7 @@ class VideoIterator(cv.VideoCapture):
 class SoundMapper(nn.Module):
     """Defines a trainable mapping between xenobot movement features, and sound (more specifically, frequency and amplitude)."""
 
-    def __init__(self, nb_ins: int, hidden_lays: list[int],
-                 l_rate: float = 1e-3,
-                 fmin: int = 20, fmax: int = 20000,
-                 device: str = 'cuda'):
+    def __init__(self, nb_ins: int, hidden_lays: list[int], l_rate: float = 1e-3, device: str = 'cuda'):
         """Declares a multi-layer perceptron linking input features to frequency and amplitude.
 
         Parameters
@@ -377,12 +374,6 @@ class SoundMapper(nn.Module):
 
             l_rate: float, optional
                 The step size for updating the network's parameters.
-
-            fmin: int, optional
-                The minimum frequency of the generated sound.
-
-            fmax: int, optional
-                The maximum frequency of the generated sound.
 
             device: {'cuda', 'cpu', 'auto'}, optional
                 The type of device to use for computation.
@@ -425,9 +416,6 @@ class SoundMapper(nn.Module):
         # Define optimizer
         self.optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
 
-        # Keep track of the frequency interval
-        self._freqs = [fmin, fmax]
-
     def forward(self, x):
         # Make sure the input is on the right device
         if x.device != self._device:
@@ -437,55 +425,11 @@ class SoundMapper(nn.Module):
         out = self._linear(x).squeeze()
 
         # Scale and return the frequencies for X and Y coordinates
-        return out * (self._freqs[1] - self._freqs[0]) + self._freqs[0]
+        return out
 
     @property
     def device(self):
         return self._device
-
-    @property
-    def fmin(self):
-        return self._freqs[0]
-
-    @property
-    def fmax(self):
-        return self._freqs[1]
-
-    @property
-    def amin(self):
-        return self._amps[0]
-
-    @property
-    def amax(self):
-        return self._amps[1]
-
-    @fmin.setter
-    def fmin(self, val: int):
-        if val >= self._freqs[1]:
-            raise ValueError(f'The minimum frequency should be less than the maximum, but got: {val} (>= {self._freqs[1]}')
-        else:
-            self._freqs[0] = val
-
-    @fmax.setter
-    def fmax(self, val: int):
-        if val <= self._freqs[0]:
-            raise ValueError(f'The maximum frequency should be greater than the maximum, but got: {val} (<= {self._freqs[0]}')
-        else:
-            self._freqs[1] = val
-
-    @amin.setter
-    def amin(self, val: float):
-        if val >= self._amps[1]:
-            raise ValueError(f'The minimum amplitude should be less than the maximum, but got: {val} (>= {self._amps[1]}')
-        else:
-            self._amps[0] = max(0, val)
-
-    @amax.setter
-    def amax(self, val: float):
-        if val <= self._amps[0]:
-            raise ValueError(f'The maximum amplitude should be greater than the maximum, but got: {val} (<= {self._amps[0]}')
-        else:
-            self._amps[1] = min(1, val)
 
 
 class RecurrentSoundMapper(SoundMapper):
