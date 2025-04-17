@@ -354,13 +354,13 @@ class VideoIterator(cv.VideoCapture):
         return frame
 
 
+# TODO: Adapt the SoundMapper to output the prediction directly. Frequencies and amplitude should be scaled outside.
 class SoundMapper(nn.Module):
     """Defines a trainable mapping between xenobot movement features, and sound (more specifically, frequency and amplitude)."""
 
     def __init__(self, nb_ins: int, hidden_lays: list[int],
                  l_rate: float = 1e-3,
                  fmin: int = 20, fmax: int = 20000,
-                 amin: float = 0, amax: float = 1,
                  device: str = 'cuda'):
         """Declares a multi-layer perceptron linking input features to frequency and amplitude.
 
@@ -383,12 +383,6 @@ class SoundMapper(nn.Module):
 
             fmax: int, optional
                 The maximum frequency of the generated sound.
-
-            amin: int, optional
-                The minimum amplitude of the generated sound.
-
-            amax: int, optional
-                The maximum amplitude of the generated sound.
 
             device: {'cuda', 'cpu', 'auto'}, optional
                 The type of device to use for computation.
@@ -431,9 +425,8 @@ class SoundMapper(nn.Module):
         # Define optimizer
         self.optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
 
-        # Keep track of the frequency and amplitude intervals
+        # Keep track of the frequency interval
         self._freqs = [fmin, fmax]
-        self._amps = [amin, amax]
 
     def forward(self, x):
         # Make sure the input is on the right device
@@ -443,10 +436,12 @@ class SoundMapper(nn.Module):
         # Propagate the input through the multi-layer perceptron
         out = self._linear(x).squeeze()
 
-        # Scale and return the frequency and amplitude
-        freq = out[0] * (self._freqs[1] - self._freqs[0]) + self._freqs[0]
-        amp = out[1] * (self._amps[1] - self._amps[0]) + self._amps[0]
-        return freq, amp
+        # Scale and return the frequencies for X and Y coordinates
+        return out * (self._freqs[1] - self._freqs[0]) + self._freqs[0]
+
+    @property
+    def device(self):
+        return self._device
 
     @property
     def fmin(self):
