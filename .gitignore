@@ -7,6 +7,7 @@ Data/
 *test*
 Test/
 *.cmd
+*.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
