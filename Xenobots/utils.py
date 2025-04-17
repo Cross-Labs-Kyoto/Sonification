@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import pandas as pd
 from math import pow
 from collections import deque
 
@@ -17,7 +18,7 @@ def get_video_meta(vc):
     tot_frames = int(vc.get(cv.CAP_PROP_FRAME_COUNT))
 
     return width, height, fps, tot_frames
-    
+
 
 def get_contours(frame, thres):
     # Convert color to gradients of gray
@@ -53,9 +54,11 @@ def get_rotated_bbox(contour):
 
     return rect
 
-def arctan(y,x):
+
+def arctan(y, x):
     # Return the angle in radians in the range [0, 2pi], starting at (0, 1) and going counter-clockwise
     return np.arctan2(y, x) + np.abs(np.sign(np.arctan2(y, x)) - 1) * np.pi
+
 
 def cart_to_polar(x, y):
     return np.linalg.norm((x, y)), arctan(y, x)
@@ -99,7 +102,8 @@ def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
             else:
 
                 # Convert the current position into polar coordinates for panning
-                curr_polar = cart_to_polar(traj[-1].center[0] - (tracker.frame_center[0]), tracker.frame_center[1] - traj[-1].center[1])
+                curr_polar = cart_to_polar(traj[-1].center[0] - (tracker.frame_center[0]),
+                                           tracker.frame_center[1] - traj[-1].center[1])
 
                 # Handle objects with no instantaneous centers of rotations
                 if tid not in tracker.icrs:
@@ -133,7 +137,7 @@ def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
             # Compute the left, right panning
             left = -(np.cos(np.abs(curr_polar[1]))).item()
             right = (np.cos(np.abs(curr_polar[1]))).item()
-            
+
             if tid not in pans:
                 pans[tid] = {'left': [0] * tracker.starts[tid] + [left],
                              'right': [0] * tracker.starts[tid] + [right]}
@@ -156,7 +160,8 @@ def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
             min_freq = min_fs
 
     for tid in freqs.keys():
-        freqs[tid] = [(f - min_freq + 1e-8) / (max_freq - min_freq) for f in freqs[tid]]  # 1e-8 has been added to avoid division by zero when converting to note
+        freqs[tid] = [(f - min_freq + 1e-8) / (max_freq - min_freq) for f in
+                      freqs[tid]]  # 1e-8 has been added to avoid division by zero when converting to note
 
     # Return the frequencies and panning for all tracked objects
     return freqs, pans
@@ -207,7 +212,8 @@ class MvTracker(object):
         self.rel_pos: dict[int, tuple] = {}
 
         # TODO: Adapt distance_threshold, if too many dropped objects
-        self._tracker = Tracker(distance_function='euclidean', distance_threshold=50, hit_counter_max=5, filter_factory=OptimizedKalmanFilterFactory(R=0.1, Q=4))
+        self._tracker = Tracker(distance_function='euclidean', distance_threshold=50, hit_counter_max=5,
+                                filter_factory=OptimizedKalmanFilterFactory(R=0.1, Q=4))
 
         self.frame_center = np.array((offset_x + width // 2, offset_y + height // 2))
         self._max_dist = max_dist
@@ -227,7 +233,6 @@ class MvTracker(object):
 
         """
 
-        
         # Find contours
         contours, hierarchy = get_contours(frame, self._canny_thres)
 
@@ -262,14 +267,15 @@ class MvTracker(object):
             indices = cv.dnn.NMSBoxes(bboxes, scores, score_threshold=0, nms_threshold=self._nms_thres)
 
             if len(indices) > 10:
-                logger.warning(f'Detected an awful lot of objects ({len(indices)})!!! Increase the canny threshold for better detection.')
-            
+                logger.warning(
+                    f'Detected an awful lot of objects ({len(indices)})!!! Increase the canny threshold for better detection.')
+
             # Keep only non-overlapping bboxes
             bboxes = bboxes[indices]
 
             # Find the center of every bboxes
             centers = bboxes[:, :2] + bboxes[:, 2:] / 2
-            
+
             # Need to add a dimension to fit NorFair input format
             centers = np.expand_dims(centers, axis=1)
 
@@ -354,7 +360,94 @@ class MvTracker(object):
         if objs is None:
             return []
         return objs
-        
+
+
+class SampleTracker(object):
+    """Defines a tracker that reads from pre-recorded xenobots videos (as samples to test the computational
+    pipeline). It exposes the same interface of MvTracker"""
+
+    def __init__(self, file_name):
+        super().__init__()
+
+        self.data = pd.read_csv(file_name.replace("mp4", "csv"), sep=";")
+        self.num_bots = max([int(col.split(".")[1]) for col in self.data.columns if ("x" in col or "y" in col)])
+        self.idx = 0
+
+        self.abs_pos: dict[int, deque] = {i: deque(maxlen=3) for i in range(self.num_bots)}
+        self.abs_vels: dict[int, deque] = {i: deque(maxlen=2) for i in range(self.num_bots)}
+
+        self.icrs: dict[int, np.ndarray] = {i: np.empty(0) for i in range(self.num_bots)}
+        self.rel_pos: dict[int, tuple] = {i: () for i in range(self.num_bots)}
+        for obj in range(self.num_bots):
+            curr_pos = torch.tensor([self.data.loc[self.idx, ".".join(["x", str(obj)])],
+                                     self.data.loc[self.idx, ".".join(["y", str(obj)])]])
+            self.abs_pos[obj].append(curr_pos)
+        self.idx += 1
+
+    def track(self, frame=None):
+        """Reads trajectories for detected objects.
+
+        Parameters
+        ----------
+        frame: left for compatibility with MvTracker.
+
+        """
+        for obj in range(self.num_bots):
+            # Store the absolute velocity
+            curr_pos = torch.tensor([self.data.loc[self.idx, ".".join(["x", str(obj)])],
+                                     self.data.loc[self.idx, ".".join(["y", str(obj)])]])
+            self.abs_vels[obj].append(curr_pos - self.abs_pos[obj][-1])
+            # Store the absolute position
+            self.abs_pos[obj].append(curr_pos)
+
+            # Get the ICR if possible
+            icr = self.get_icr(obj)
+            if icr is not None:
+                self.icrs[obj] = icr
+                # Compute the rotational speed around the icr
+                old_pos, curr_pos = list(self.abs_pos[obj])[1:]
+                old_rel_pos = cart_to_polar(*(old_pos - icr))
+                curr_rel_pos = cart_to_polar(*(curr_pos - icr))
+                self.rel_pos[obj] = (old_rel_pos, curr_rel_pos)
+        self.idx += 1
+
+    def get_icr(self, obj_id):
+        """Computes the Instantaneous Center of Rotation based on the object's location in three consecutive frames."""
+
+        # If we have less than 3 points, there is nothing that can be done
+        trajects = self.abs_pos[obj_id]
+        if len(trajects) < 3:
+            return None
+
+        # Get the last three known positions
+        x1, y1 = trajects[-1]
+        x2, y2 = trajects[-2]
+        x3, y3 = trajects[-3]
+
+        # Avoid dividing by zero
+        if y1 == y2 or y2 == y3:
+            return None
+
+        # Get the perpendicular bisector for both pairs of points
+        m1 = (x1 - x2) / (y2 - y1)
+        b1 = (pow(y2, 2) - pow(y1, 2) + pow(x2, 2) - pow(x1, 2)) / (2 * (y2 - y1))
+
+        m2 = (x2 - x3) / (y3 - y2)
+        b2 = (pow(y3, 2) - pow(y2, 2) + pow(x3, 2) - pow(x2, 2)) / (2 * (y3 - y2))
+
+        # Avoid dividing by zero
+        if m1 == m2:
+            return None
+
+        # Compute the point of intersection of the two bisectors
+        x = (b2 - b1) / (m1 - m2)
+        y = (m1 * b2 - m2 * b1) / (m1 - m2)
+        return np.array((x, y), dtype=int)
+
+    @property
+    def tracked_objects(self):
+        raise NotImplementedError
+
 
 class VideoIterator(cv.VideoCapture):
     """Turns OpenCV's video capture into a fully managed iterator."""
@@ -455,7 +548,8 @@ class SoundMapper(nn.Module):
             self._linear.append(nn.Sigmoid())
 
         # Define optimizer
-        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
+        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5,
+                                      maximize=False)  # Assumes we want to minimize the loss
 
         # Keep track of the frequency and amplitude intervals
         self._freqs = [fmin, fmax]
@@ -465,7 +559,7 @@ class SoundMapper(nn.Module):
         # Make sure the input is on the right device
         if x.device != self._device:
             x = x.to(self._device)
-        
+
         # Propagate the input through the multi-layer perceptron
         out = self._linear(x)
 
@@ -493,28 +587,32 @@ class SoundMapper(nn.Module):
     @fmin.setter
     def fmin(self, val: int):
         if val >= self._freqs[1]:
-            raise ValueError(f'The minimum frequency should be less than the maximum, but got: {val} (>= {self._freqs[1]}')
+            raise ValueError(
+                f'The minimum frequency should be less than the maximum, but got: {val} (>= {self._freqs[1]}')
         else:
             self._freqs[0] = val
 
     @fmax.setter
     def fmax(self, val: int):
         if val <= self._freqs[0]:
-            raise ValueError(f'The maximum frequency should be greater than the maximum, but got: {val} (<= {self._freqs[0]}')
+            raise ValueError(
+                f'The maximum frequency should be greater than the maximum, but got: {val} (<= {self._freqs[0]}')
         else:
             self._freqs[1] = val
 
     @amin.setter
     def amin(self, val: float):
         if val >= self._amps[1]:
-            raise ValueError(f'The minimum amplitude should be less than the maximum, but got: {val} (>= {self._amps[1]}')
+            raise ValueError(
+                f'The minimum amplitude should be less than the maximum, but got: {val} (>= {self._amps[1]}')
         else:
             self._amps[0] = max(0, val)
 
     @amax.setter
     def amax(self, val: float):
         if val <= self._amps[0]:
-            raise ValueError(f'The maximum amplitude should be greater than the maximum, but got: {val} (<= {self._amps[0]}')
+            raise ValueError(
+                f'The maximum amplitude should be greater than the maximum, but got: {val} (<= {self._amps[0]}')
         else:
             self._amps[1] = min(1, val)
 
@@ -576,8 +674,8 @@ class RecurrentSoundMapper(SoundMapper):
         self._lstm = nn.LSTM(nb_ins, size_lstm, num_layers=nb_lstm, batch_first=True, device=self._device)
 
         # Redefine the optimizer
-        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
-        
+        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5,
+                                      maximize=False)  # Assumes we want to minimize the loss
 
     def forward(self, x):
         # Make sure the input is on the same device as the model
@@ -652,7 +750,8 @@ class AttentionSoundMapper(SoundMapper):
         self._attn = nn.MultiheadAttention(embed_size, nb_heads, batch_first=True, device=self._device)
 
         # Update the optimizer's definition
-        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
+        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5,
+                                      maximize=False)  # Assumes we want to minimize the loss
 
     def forward(self, x):
         # Make sure the input is on the same device as the model

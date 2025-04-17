@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 from argparse import ArgumentParser
 from pathlib import Path
 import numpy as np
@@ -9,7 +10,7 @@ from pedalboard.io import AudioFile, AudioStream
 from loguru import logger
 
 from Xenobots.information import mutual_information_matrix, minimum_information_bipartition, local_phi_id, local_phi_r
-from utils import MvTracker, get_video_meta, VideoIterator
+from utils import MvTracker, get_video_meta, VideoIterator, SampleTracker
 from settings import ROOT_DIR
 
 
@@ -30,7 +31,7 @@ class Speed2SoundModel(object):
 
         # Make sure the input is a tensor
         theta = torch.tensor(theta)
-        
+
         # Compute the current movement frequency
         mv_freq = theta / (2 * np.pi)
 
@@ -90,7 +91,7 @@ if __name__ == "__main__":
     parser.add_argument('filename', type=str,
                         help='Either the name of a video file to process, or a camera ID.')
     parser.add_argument('-t', '--thres', dest='canny_thres', type=int, default=40)
-    parser.add_argument('-o', '--output', dest='out', type=str, default='default',
+    parser.add_argument('-o', '--output', dest='out', type=str, default="Altoparlanti MacBook Pro",
                         help='Either the relative path to a file or the name of a device to which the audio will be written.')
     parser.add_argument('-w', '--weight', dest='load', type=str,
                         help="The relative path to the file from which to load the model's parameters.")
@@ -122,7 +123,7 @@ if __name__ == "__main__":
     # Define where the audio output should go
     if args.out in AudioStream.output_device_names:
         audio_out_cls = AudioStream
-        audio_out_kwargs = dict(output_device_name=args.out, num_output_channels=1, sample_rate=args.sample_rate) 
+        audio_out_kwargs = dict(output_device_name=args.out, num_output_channels=1, sample_rate=args.sample_rate)
     else:
         fname = Path(args.out).expanduser().resolve()
         audio_out_cls = AudioFile
@@ -138,8 +139,10 @@ if __name__ == "__main__":
         video_in = str(video_in)
 
     # Instantiate model
-    model = Speed2SoundModel(f_min=np.random.uniform(low=20, high=500), f_max=np.random.uniform(low=500, high=20000), decay=np.random.random())
-    
+    model = Speed2SoundModel(f_min=np.random.uniform(low=20, high=500),
+                             f_max=np.random.uniform(low=500, high=20000),
+                             decay=np.random.random())
+
     # Load the parameters if necessary
     if args.load is not None:
         weight_file = Path(args.load).expanduser().resolve()
@@ -162,18 +165,22 @@ if __name__ == "__main__":
                 vid_w, vid_h, fps, tot_frames = get_video_meta(vi)
 
                 # Instantiate a new movement tracker
-                tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50, canny_thres=args.canny_thres, debug=args.debug)
-                
+                if "sample_trajectories" in args.filename:
+                    tracker = SampleTracker(args.filename)
+                else:
+                    tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50, canny_thres=args.canny_thres,
+                                        debug=args.debug)
+
                 # Rest the gradient and the model
                 model.reset()
                 optimizer.zero_grad()
 
                 # Pre-compute the amplitude to apply to all audio chunks
                 # This is to prevent any clipping noise between chunks
-                fade_len = int(args.sample_rate/(10*fps))
-                full_len = int(args.sample_rate/fps) - 2 * fade_len
+                fade_len = int(args.sample_rate / (10 * fps))
+                full_len = int(args.sample_rate / fps) - 2 * fade_len
                 amp = np.log(np.linspace(1, np.exp(1), fade_len))
-                amp = np.hstack([amp, np.ones((full_len, )), amp[::-1]]).astype(np.float32) * args.vol
+                amp = np.hstack([amp, np.ones((full_len,)), amp[::-1]]).astype(np.float32) * args.vol
 
                 # Process the video and generate audio output
                 freqs = []
@@ -187,21 +194,27 @@ if __name__ == "__main__":
                         # Track objects
                         tracker.track(frame)
 
-                        # We assume that only a single object is tracked
-                        # TODO: If assumption is not correct, then manage a list of models, and save their parameters accordingly
-                        try:
-                            obj = tracker.tracked_objects[0]
-                        except IndexError:
-                            continue
+                        # We are treating n biobots with the same model for simplicity
+                        # try:
+                        #     obj = tracker.tracked_objects[0]
+                        # except IndexError:
+                        #     continue
 
-                        if obj.id in tracker.rel_pos:
-                            # Compute the frequency
-                            old_pos, curr_pos = tracker.rel_pos[obj.id]
-                            theta = (curr_pos[1] - old_pos[1]) * fps
+                        for bot in range(tracker.num_bots):
+                            # Compute the frequency, using updated formula for area-less circle
+                            # old_pos, curr_pos = tracker.rel_pos[obj.id]
+                            # theta = (curr_pos[1] - old_pos[1]) * fps
+                            x, y = tracker.abs_pos[bot][-1]
+                            vx, vy = tracker.abs_vels[bot][-1]
+                            cross = x * vy - y * vx
+                            radius_squared = x ** 2 + y ** 2
+                            theta = cross / radius_squared
                             freq = model(theta)
 
                             # Generate the associated audio chunk
-                            chunk = librosa.tone(frequency=freq.detach().cpu().item(), sr=args.sample_rate, length=int(args.sample_rate/fps)).astype(np.float32)
+                            chunk = librosa.tone(frequency=freq.detach().cpu().item(),
+                                                 sr=args.sample_rate,
+                                                 length=int(args.sample_rate / fps)).astype(np.float32)
 
                             # Store the list of local frequencies
                             freqs.append(freq)
@@ -211,12 +224,11 @@ if __name__ == "__main__":
                                 audio_out.write(chunk * amp, sample_rate=args.sample_rate)
                             else:
                                 audio_out.write(chunk * amp)
-                                
+
                 except KeyboardInterrupt:
                     pass
                 finally:
                     # Compute loss and optimize parameters
-                    # TODO: provide the necessary targets to the loss function
                     loss = loss(freqs)
                     loss.backward()
                     optimizer.step()
@@ -229,4 +241,3 @@ if __name__ == "__main__":
                     res = input('Do you want to quit the program (y/N): ')
                     if res.lower() == 'y':
                         break
-
