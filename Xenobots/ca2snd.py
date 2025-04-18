@@ -14,6 +14,7 @@ from pedalboard.io import AudioFile, AudioStream
 import librosa
 from loguru import logger
 
+from settings import ROOT_DIR
 from utils import SoundMapper, Memory
 
 
@@ -141,6 +142,12 @@ if __name__ == '__main__':
                         help='The relative path to the weight file to use for the mapper.')
     parser.add_argument('-l', '--learn_rate', dest='lr', type=float, default=1e-3,
                         help="The step size to use when updating the model's parameters.")
+    parser.add_argument('-p', '--exploration_proba', dest='init_exp_proba', type=float, default=1,
+                        help="Sets the initial exploration probability.")
+    parser.add_argument('-t', '--test', dest='testing', action='store_true',
+                        help='A flag indicating whether to run the simulation in testing mode, in which no learning occurs, or not.')
+    parser.add_argument('-c', '--criterion', dest='loss_crit', type=float, default=0.0005,
+                        help="Defines a threshold loss under which the algorithm stops learning.")
 
     # Parse the command line arguments
     args = parser.parse_args()
@@ -158,6 +165,8 @@ if __name__ == '__main__':
             mapper.load_state_dict(torch.load(weight_file, map_location=mapper.device, weights_only=True))
         else:
             logger.error(f'The provided path for the weights does not exist or is not a file: {weight_file}')
+    else:
+        weight_file = ROOT_DIR.joinpath('Models', 'ca_2_sound.pt')
 
     # Ensure the mapper is in inference mode
     mapper = mapper.eval()
@@ -183,6 +192,10 @@ if __name__ == '__main__':
                   AUDIO_Q]
 
     try:
+        testing = args.testing
+        exploration_proba = max(0, min(1, args.init_exp_proba))
+        decay_rate = 0.005
+        cool_down = 50
         while not END_EVT.is_set():
             try:
                 # Initialize the marco-polo rule
@@ -230,9 +243,14 @@ if __name__ == '__main__':
 
                     # Allow movement in 8 directions
                     sign_diff = torch.sign(com_pos_1 - com_pos_2).numpy()
-                    # Prevent agents from staying in place
-                    if np.all(sign_diff == 0):
-                        sign_diff = np.ones_like(sign_diff)
+
+                    # At random points in time
+                    if not testing and np.random.random() < exploration_proba:
+                        # Move agents in a random direction
+                        sign_diff = np.random.choice([-1, 0, 1], size=sign_diff.shape[0])
+                        # Update the exploration probability
+                        exploration_proba *= (1 - decay_rate)
+
                     mp_rule.agt_poses[0] -= sign_diff
                     mp_rule.agt_poses[1] += sign_diff
 
@@ -251,10 +269,22 @@ if __name__ == '__main__':
                         # Only keep the last CA state
                         ca_hist = np.expand_dims(ca_hist[-1], axis=0)
 
+                    cool_down -= 1
                     # Once enough memories have been added
-                    if len(memory) % BATCH_SIZE == 0:
+                    if not testing and len(memory) % BATCH_SIZE == 0 and cool_down <= 0:
+                        cool_down = 50
                         # Train the mapper
-                        mapper.train_nn(memory, loss_fn, NB_EPOCH, BATCH_SIZE)
+                        loss = mapper.train_nn(weight_file, memory, loss_fn, NB_EPOCH, BATCH_SIZE, patience=int(NB_EPOCH * 0.05))
+
+                        # If model is sufficiently trained
+                        if loss <= args.loss_crit:
+                            # Switch to testing mode
+                            testing = True
+                            if not args.debug:
+                                logger.info('Training complete.')
+                                exit()
+                            else:
+                                logger.info('Training complete. Switching to testing mode.')
 
                         # Switch the mapper back to inference mode
                         mapper = mapper.eval()
