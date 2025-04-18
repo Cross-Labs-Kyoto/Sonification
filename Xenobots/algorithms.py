@@ -22,7 +22,7 @@ class Algorithm(abc.ABC):
 
 class GeneticAlgorithm(Algorithm):
 
-    def __init__(self, n_dim, fitness_func, n_pop=100):
+    def __init__(self, n_dim, fitness_func, n_pop=25):
         super().__init__(n_dim, fitness_func)
         self.pop = np.random.random(size=(n_pop, n_dim))
         self.pop[:, 0] = self.pop[:, 0] * 480 + 20
@@ -48,12 +48,12 @@ class GeneticAlgorithm(Algorithm):
         child = self._tournament_select(k=1)[0].copy() if parent is None else parent
         idx = random.randint(0, len(child) - 1)
         if idx == 0:
-            val = np.random.uniform(low=20, high=500)
+            val = np.random.normal(0.0, scale=40)
         elif idx == 1:
-            val = np.random.uniform(low=500, high=20000)
+            val = np.random.normal(0.0, scale=1000)
         else:
-            val = np.random.random()
-        child[idx] = val
+            val = np.random.normal(0.0, scale=0.1)
+        child[idx] += val
         return child
 
     def _reproduce(self):

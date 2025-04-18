@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import librosa
+from matplotlib import pyplot as plt
 from pedalboard.io import AudioFile, AudioStream
 from loguru import logger
 
@@ -253,6 +254,8 @@ if __name__ == "__main__":
                 # Process the video and generate audio output
                 try:
                     optimizer.learn(n_iter=10)
+                    # plt.plot(optimizer.history)
+                    # plt.show()
                 except KeyboardInterrupt:
                     pass
                 finally:
@@ -262,7 +265,9 @@ if __name__ == "__main__":
                     # optimizer.step()
 
                     # Save parameters
-                    # state_dict = model.state_dict()
+                    params = optimizer.get_best()
+                    model.load_state_dict(params={"f_min": params[0], "f_max": params[1], "decay": params[2]})
+                    state_dict = model.state_dict()
                     torch.save(state_dict, ROOT_DIR.joinpath('speed_2_sound.pt'))
 
                     # Pause until an answer is given
