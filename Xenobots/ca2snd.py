@@ -14,14 +14,14 @@ from pedalboard.io import AudioFile, AudioStream
 import librosa
 from loguru import logger
 
-from utils import SoundMapper
-from settings import ROOT_DIR
+from utils import SoundMapper, Memory
 
 
 END_EVT = Event()
 DISP_Q = Queue()
 AUDIO_Q = Queue()
 LOOP_LEN = 1 / 30  # Corresponds to a 30 fps frame rate
+NB_EPOCH = 200
 BATCH_SIZE = 32
 
 class MarcoPoloRule(cpl.BaseRule):
@@ -74,7 +74,7 @@ def display():
 def audio(out_path, sample_rate):
     """Plays stereo audio chunks."""
 
-    # Initialize the audio output 
+    # Initialize the audio output
     audio_file = Path(out_path).expanduser().resolve()
     if audio_file.is_file():
         audio_kwargs = dict(filename=audio_file, mode='w', samplerate=sample_rate)
@@ -148,7 +148,7 @@ if __name__ == '__main__':
     assert args.fmin < args.fmax, f'The minimum frequency has to be less than the maximum, but got: {args.fmin} and {args.fmax}'
 
     # Initialize mapper, associated loss, and optimizer
-    mapper = SoundMapper(nb_ins=2, hidden_lays=[5000], l_rate=args.lr)
+    mapper = SoundMapper(nb_ins=2, hidden_lays=[5, 5, 5], l_rate=args.lr)
     loss_fn = nn.MSELoss()
 
     # If provided load weights
@@ -159,11 +159,18 @@ if __name__ == '__main__':
         else:
             logger.error(f'The provided path for the weights does not exist or is not a file: {weight_file}')
 
+    # Ensure the mapper is in inference mode
+    mapper = mapper.eval()
+
+    # Display mapper's topology
     logger.info(mapper)
+
+    # Initialize a dataset to aggregate experience and train the mapper
+    memory = Memory()
 
     # Initialize required constants
     bins = np.linspace(args.fmin, args.fmax, args.ca_size, dtype=np.float32)
-    bins = torch.from_numpy(np.stack([bins, bins], axis=0)).to(mapper.device)
+    bins = torch.from_numpy(np.stack([bins, bins], axis=0))
 
     # Start the display and audio threads if necessary
     if args.debug:
@@ -176,13 +183,6 @@ if __name__ == '__main__':
                   AUDIO_Q]
 
     try:
-        # Initialize the list of predicted and target frequencies
-        preds = []
-        targs = []
-
-        # Keep track of the minimum loss
-        min_loss = np.inf
-
         while not END_EVT.is_set():
             try:
                 # Initialize the marco-polo rule
@@ -195,16 +195,19 @@ if __name__ == '__main__':
                     ca_hist[:, init_poses[0, 0], init_poses[0, 1]] = 1
                     ca_hist[:, init_poses[1, 0], init_poses[1, 1]] = 1
 
-                # while np.any(mp_rule.agt_poses[0] != mp_rule.agt_poses[1]) and not END_EVT.is_set():
                 while cdist(np.expand_dims(mp_rule.agt_poses[0], axis=0), np.expand_dims(mp_rule.agt_poses[1], axis=0)) > np.sqrt(2) and not END_EVT.is_set():
                     freqs = []
-                    for pos in mp_rule.agt_poses:
-                        # Generate the frequencies corresponding to both agents
-                        preds.append(mapper(torch.tensor(pos, dtype=torch.float32)))
-                        freqs.append(preds[-1] * (args.fmax - args.fmin) + args.fmin)
+                    with torch.no_grad():
+                        for pos in mp_rule.agt_poses:
+                            # Generate the frequencies corresponding to both agents
+                            pred = mapper(torch.tensor(pos, dtype=torch.float32)).cpu()
+                            freqs.append(pred * (args.fmax - args.fmin) + args.fmin)
 
-                        # Get target frequencies
-                        targs.append((bins[(0, 1), pos] - args.fmin) / (args.fmax - args.fmin))
+                            # Get target frequencies
+                            targ = (bins[(0, 1), pos] - args.fmin) / (args.fmax - args.fmin)
+
+                            # Add the experience to memory
+                            memory.add(pos, targ)
 
                     # Update position of both agents based on received frequencies
                     com_pos_1 = torch.argmin(torch.abs(bins - freqs[0].unsqueeze(1)), dim=1)
@@ -214,6 +217,10 @@ if __name__ == '__main__':
                     #diff = com_pos_1 - com_pos_2
                     #abs_diff = torch.abs(diff).tolist()
                     #sign_diff = torch.sign(diff).tolist()
+                    #
+                    # Prevent agents from staying in place
+                    #if np.all(sign_diff == 0):
+                    #    sign_diff = np.ones_like(sign_diff)
                     #if abs_diff[0] >= abs_diff[1]:
                     #    mp_rule.agt_poses[0][0] -= sign_diff[0]
                     #    mp_rule.agt_poses[1][0] += sign_diff[0]
@@ -222,7 +229,10 @@ if __name__ == '__main__':
                     #    mp_rule.agt_poses[1][1] += sign_diff[1]
 
                     # Allow movement in 8 directions
-                    sign_diff = torch.sign(com_pos_1 - com_pos_2).tolist()
+                    sign_diff = torch.sign(com_pos_1 - com_pos_2).numpy()
+                    # Prevent agents from staying in place
+                    if np.all(sign_diff == 0):
+                        sign_diff = np.ones_like(sign_diff)
                     mp_rule.agt_poses[0] -= sign_diff
                     mp_rule.agt_poses[1] += sign_diff
 
@@ -236,34 +246,19 @@ if __name__ == '__main__':
                         ca_hist = cpl.evolve2d(ca_hist, timesteps=2, apply_rule=mp_rule)
                         # Send data to display and audio queues
                         DISP_Q.put(ca_hist[-1])
-                        aud_freqs = np.array([f.detach().cpu().numpy() for f in freqs]).reshape((4, 1)) 
+                        aud_freqs = np.array([f.detach().cpu().numpy() for f in freqs]).reshape((4, 1))
                         AUDIO_Q.put(aud_freqs)
                         # Only keep the last CA state
                         ca_hist = np.expand_dims(ca_hist[-1], axis=0)
 
-                    if len(targs) >= BATCH_SIZE:
+                    # Once enough memories have been added
+                    if len(memory) % BATCH_SIZE == 0:
                         # Train the mapper
-                        batch_preds = torch.stack(preds, dim=0)
-                        batch_targs = torch.stack(targs, dim=0)
+                        mapper.train_nn(memory, loss_fn, NB_EPOCH, BATCH_SIZE)
 
-                        loss = loss_fn(batch_preds, batch_targs)
-                        loss.backward()
-                        mapper.optim.step()
+                        # Switch the mapper back to inference mode
+                        mapper = mapper.eval()
 
-                        loss = loss.item()
-                        logger.info(f'Loss: {loss}')
-
-                        # Reset the gradients
-                        mapper.optim.zero_grad()
-
-                        # Reset predictions and targets
-                        preds = []
-                        targs = []
-
-                        if loss < min_loss:
-                            min_loss = loss
-                            # Save weights
-                            torch.save(mapper.state_dict(), ROOT_DIR.joinpath('ca_2_sound.pt'))
             except KeyboardInterrupt:
                 break
     finally:
