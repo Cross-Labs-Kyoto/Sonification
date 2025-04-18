@@ -85,6 +85,6 @@ class GeneticAlgorithm(Algorithm):
             offspring = self._reproduce()
             fitness = self.eval_fitness(individuals=offspring)
             self._survival_select(offspring=offspring, fitness_list=fitness)
-            self.history.append(np.max(fitness))
+            self.history.append(np.max(self.fitness_list))
             print(i)
         return self.get_best()
