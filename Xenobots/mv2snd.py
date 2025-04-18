@@ -9,7 +9,9 @@ import librosa
 from pedalboard.io import AudioFile, AudioStream
 from loguru import logger
 
-from Xenobots.information import mutual_information_matrix, minimum_information_bipartition, local_phi_id, local_phi_r
+from Xenobots.algorithms import GeneticAlgorithm
+from Xenobots.information import mutual_information_matrix, minimum_information_bipartition, local_phi_id, local_phi_r, \
+    corrected_zscore, remove_autocorrelation, global_signal_regression
 from utils import MvTracker, get_video_meta, VideoIterator, SampleTracker
 from settings import ROOT_DIR
 
@@ -55,7 +57,7 @@ class Speed2SoundModel(object):
         return dict(f_min=self._f_min, f_max=self._f_max, decay=self._decay)
 
     def load_state_dict(self, params):
-        for k, v in params:
+        for k, v in params.items():
             # Translate the attribute name to make it "private"
             k = f'_{k}'
             # Only set valid attributes, the rest is gracefully ignored
@@ -63,20 +65,76 @@ class Speed2SoundModel(object):
                 setattr(self, k, v)
 
 
-def causal_emergence_loss(freqs: list[float]):
+def video2freqs(params, model, vi, args, tracker, fps, audio_out, amp):
+    freqs = []
+    model.load_state_dict(params={"f_min": params[0], "f_max": params[1], "decay": params[2]})
+    for f_idx, frame in enumerate(vi):
+        if len(freqs) > 5:
+            break
+        # If requested skip frames
+        if args.f_skip != 0:
+            if f_idx % int(args.f_skip * fps) != 0:
+                continue
+        curr_freqs = []
+        # Track objects
+        tracker.track(frame)
+
+        # We are treating n biobots with the same model for simplicity
+        # try:
+        #     obj = tracker.tracked_objects[0]
+        # except IndexError:
+        #     continue
+
+        for bot in range(tracker.num_bots):
+            # Compute the frequency, using updated formula for area-less circle
+            # old_pos, curr_pos = tracker.rel_pos[obj.id]
+            # theta = (curr_pos[1] - old_pos[1]) * fps
+            x, y = tracker.abs_pos[bot][-1]
+            vx, vy = tracker.abs_vels[bot][-1]
+            cross = x * vy - y * vx
+            radius_squared = x ** 2 + y ** 2
+            theta = cross / radius_squared
+            freq = model(theta)
+
+            # Generate the associated audio chunk
+            chunk = librosa.tone(frequency=freq.detach().cpu().item(),
+                                 sr=args.sample_rate,
+                                 length=int(args.sample_rate / fps)).astype(np.float32)
+
+            # Store the list of local frequencies
+            curr_freqs.append(freq)
+
+            # Play the sound
+            if isinstance(audio_out, AudioStream):
+                audio_out.write(chunk * amp, sample_rate=args.sample_rate)
+            else:
+                audio_out.write(chunk * amp)
+        freqs.append(curr_freqs)
+    return freqs
+
+
+def preprocess_data(d: np.ndarray):
+    d = corrected_zscore(d, axis=1)
+    d = global_signal_regression(d)
+    return d
+
+
+def causal_emergence_loss(freqs: list[list[torch.tensor]]):
     """
 
     Parameters
     ----------
-    freqs: the frequencies (one per video frame) output by the model as a function of the rotational velocity.
+    freqs: the frequencies (one per video frame and one per bot) output by the model as a function of the rotational velocity.
 
     Returns
     -------
 
     """
-    data = np.array(freqs, dtype=np.float64).T  # (n x T), with n number of bots and T number of video frames
+    data = np.array([[f.detach().numpy() for f in frame] for frame in freqs],
+                    dtype=np.float64).T  # (n x T), with n number of bots and T number of video frames
+    data = preprocess_data(d=data)
     mi_mat = mutual_information_matrix(data, alpha=1, bonferonni=False, lag=1)
-    mib = minimum_information_bipartition(mi_mat, noise=True)
+    mib = minimum_information_bipartition(mi_mat, noise=False)
     component_1 = data[mib[0], :].mean(axis=0)
     component_2 = data[mib[1], :].mean(axis=0)
     data_reduced = np.vstack((component_1, component_2))
@@ -153,9 +211,9 @@ if __name__ == "__main__":
             logger.error(f'The provided weight file, does not exist or is not a file: {weight_file}')
 
     # Declare the optimizer
-    optimizer = torch.optim.SGD(model.parameters(), args.l_rate, maximize=False)
+    # optimizer = torch.optim.SGD(model.parameters(), args.l_rate, maximize=False)
 
-    loss = causal_emergence_loss
+    # loss = causal_emergence_loss
 
     # Loop forever (or until the user presses ctrl+c and asks to quit the program)
     while True:
@@ -173,7 +231,7 @@ if __name__ == "__main__":
 
                 # Rest the gradient and the model
                 model.reset()
-                optimizer.zero_grad()
+                # optimizer.zero_grad()
 
                 # Pre-compute the amplitude to apply to all audio chunks
                 # This is to prevent any clipping noise between chunks
@@ -182,59 +240,29 @@ if __name__ == "__main__":
                 amp = np.log(np.linspace(1, np.exp(1), fade_len))
                 amp = np.hstack([amp, np.ones((full_len,)), amp[::-1]]).astype(np.float32) * args.vol
 
+                optimizer = GeneticAlgorithm(n_dim=len(model.parameters()),
+                                             fitness_func=lambda x: causal_emergence_loss(video2freqs(params=x,
+                                                                                                      model=model,
+                                                                                                      vi=vi,
+                                                                                                      args=args,
+                                                                                                      tracker=tracker,
+                                                                                                      fps=fps,
+                                                                                                      audio_out=audio_out,
+                                                                                                      amp=amp)))
+
                 # Process the video and generate audio output
-                freqs = []
                 try:
-                    for f_idx, frame in enumerate(vi):
-                        # If requested skip frames
-                        if args.f_skip != 0:
-                            if f_idx % int(args.f_skip * fps) != 0:
-                                continue
-
-                        # Track objects
-                        tracker.track(frame)
-
-                        # We are treating n biobots with the same model for simplicity
-                        # try:
-                        #     obj = tracker.tracked_objects[0]
-                        # except IndexError:
-                        #     continue
-
-                        for bot in range(tracker.num_bots):
-                            # Compute the frequency, using updated formula for area-less circle
-                            # old_pos, curr_pos = tracker.rel_pos[obj.id]
-                            # theta = (curr_pos[1] - old_pos[1]) * fps
-                            x, y = tracker.abs_pos[bot][-1]
-                            vx, vy = tracker.abs_vels[bot][-1]
-                            cross = x * vy - y * vx
-                            radius_squared = x ** 2 + y ** 2
-                            theta = cross / radius_squared
-                            freq = model(theta)
-
-                            # Generate the associated audio chunk
-                            chunk = librosa.tone(frequency=freq.detach().cpu().item(),
-                                                 sr=args.sample_rate,
-                                                 length=int(args.sample_rate / fps)).astype(np.float32)
-
-                            # Store the list of local frequencies
-                            freqs.append(freq)
-
-                            # Play the sound
-                            if isinstance(audio_out, AudioStream):
-                                audio_out.write(chunk * amp, sample_rate=args.sample_rate)
-                            else:
-                                audio_out.write(chunk * amp)
-
+                    optimizer.learn(n_iter=10)
                 except KeyboardInterrupt:
                     pass
                 finally:
                     # Compute loss and optimize parameters
-                    loss = loss(freqs)
-                    loss.backward()
-                    optimizer.step()
+                    # loss = loss(freqs)
+                    # loss.backward()
+                    # optimizer.step()
 
                     # Save parameters
-                    state_dict = model.state_dict()
+                    # state_dict = model.state_dict()
                     torch.save(state_dict, ROOT_DIR.joinpath('speed_2_sound.pt'))
 
                     # Pause until an answer is given

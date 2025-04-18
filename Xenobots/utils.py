@@ -370,7 +370,7 @@ class SampleTracker(object):
         super().__init__()
 
         self.data = pd.read_csv(file_name.replace("mp4", "csv"), sep=";")
-        self.num_bots = max([int(col.split(".")[1]) for col in self.data.columns if ("x" in col or "y" in col)])
+        self.num_bots = max([int(col.split(".")[1]) for col in self.data.columns if ("x" in col or "y" in col)]) + 1
         self.idx = 0
 
         self.abs_pos: dict[int, deque] = {i: deque(maxlen=3) for i in range(self.num_bots)}
