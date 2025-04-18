@@ -354,11 +354,10 @@ class VideoIterator(cv.VideoCapture):
         return frame
 
 
-# TODO: Adapt the SoundMapper to output the prediction directly. Frequencies and amplitude should be scaled outside.
 class SoundMapper(nn.Module):
     """Defines a trainable mapping between xenobot movement features, and sound (more specifically, frequency and amplitude)."""
 
-    def __init__(self, nb_ins: int, hidden_lays: list[int], l_rate: float = 1e-3, device: str = 'cuda'):
+    def __init__(self, nb_ins: int, hidden_lays: list[int], nb_outs: int = 2, l_rate: float = 1e-3, device: str = 'cuda'):
         """Declares a multi-layer perceptron linking input features to frequency and amplitude.
 
         Parameters
@@ -383,9 +382,6 @@ class SoundMapper(nn.Module):
         # Initialize the parent class
         super().__init__()
 
-        # We assume only two outputs
-        nb_out = 2
-
         # Define the device to use for computation
         if device in ['cuda', 'cpu']:
             self._device = torch.device(device)
@@ -395,7 +391,7 @@ class SoundMapper(nn.Module):
         # Define the network's architecture
         if len(hidden_lays) == 0:
             self._linear = nn.Sequential(
-                nn.Linear(nb_ins, out_features=nb_out, device=self._device),
+                nn.Linear(nb_ins, out_features=nb_outs, device=self._device),
                 nn.Sigmoid()
             )
         else:
@@ -404,14 +400,16 @@ class SoundMapper(nn.Module):
             for hid_size in hidden_lays:
                 # Add layer
                 self._linear.append(nn.Linear(in_size, hid_size, device=self._device))
-                self._linear.append(nn.ReLU(inplace=True))  # Could be replaced with Tanh()
+                #self._linear.append(nn.ReLU(inplace=True))  # Could be replaced with Tanh()
+                self._linear.append(nn.Tanh())
                 self._linear.append(nn.LayerNorm(hid_size, device=self._device))
                 # Record size for next input
                 in_size = hid_size
 
             # Add output layer
-            self._linear.append(nn.Linear(in_size, nb_out, device=self._device))
-            self._linear.append(nn.Sigmoid())
+            self._linear.append(nn.Linear(in_size, nb_outs, device=self._device))
+            #self._linear.append(nn.Sigmoid())
+            self._linear.append(nn.Hardsigmoid())
 
         # Define optimizer
         self.optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
@@ -436,10 +434,7 @@ class RecurrentSoundMapper(SoundMapper):
     """Defines a trainable recurrent mapping between xenobot movement features and sound."""
 
     def __init__(self, nb_ins: int, hidden_lays: list[int], nb_lstm: int, size_lstm: int,
-                 l_rate: float = 1e-3,
-                 fmin: int = 20, fmax: int = 20000,
-                 amin: float = 0, amax: float = 1,
-                 device: str = 'cuda'):
+                 nb_outs: int = 2, l_rate: float = 1e-3, device: str = 'cuda'):
         """Declares a lstm-based network linking input features to frequency and amplitude.
 
         Parameters
@@ -462,18 +457,6 @@ class RecurrentSoundMapper(SoundMapper):
             l_rate: float, optional
                 The step size for updating the network's parameters.
 
-            fmin: int, optional
-                The minimum frequency of the generated sound.
-
-            fmax: int, optional
-                The maximum frequency of the generated sound.
-
-            amin: int, optional
-                The minimum amplitude of the generated sound.
-
-            amax: int, optional
-                The maximum amplitude of the generated sound.
-
             device: {'cuda', 'cpu', 'auto'}, optional
                 The type of device to use for computation.
 
@@ -483,7 +466,7 @@ class RecurrentSoundMapper(SoundMapper):
         assert nb_lstm != 0 and size_lstm != 0, 'The number and size of lstm layers cannot be zero. Use a standard `SoundMapper()` if this is what you want.'
 
         # Initialize the SoundMapper
-        super().__init__(size_lstm, hidden_lays, l_rate, fmin, fmax, amin, amax, device)
+        super().__init__(size_lstm, hidden_lays, nb_outs, l_rate, device)
 
         # Declare the recurrent portion of the network
         self._lstm = nn.LSTM(nb_ins, size_lstm, num_layers=nb_lstm, batch_first=True, device=self._device)
