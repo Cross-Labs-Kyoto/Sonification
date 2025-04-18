@@ -459,6 +459,56 @@ class SoundMapper(nn.Module):
         # Scale and return the frequencies for X and Y coordinates
         return out
 
+    def train_nn(self, dset, loss_fn, nb_epoch, batch_size, patience: int = 5):
+        """Uses the given dataset and loss function to train the model.
+        """
+
+        # Get a dataloader from the provided dataset
+        dl = DataLoader(dset, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=4)
+
+        # Switch the model to training mode
+        self = self.train()
+
+        # Train the network
+        min_loss = np.inf
+        cnt = 0
+        for epoch in range(nb_epoch):
+            train_loss = 0
+            for batch in dl:
+                # Reset the gradient
+                self.optim.zero_grad()
+
+                # Extract the inputs and targets
+                inpts = batch[:, 0].to(self._device)
+                targs = batch[:, 1].to(self._device)
+
+                # Compute the predictions
+                preds = self(inpts)
+
+                # Compute and back-propagate loss
+                loss = loss_fn(preds, targs)
+                loss.backward()
+                self.optim.step()
+
+                # Aggregate the loss
+                train_loss += loss.item()
+
+            train_loss /= len(dl)
+
+            # Display the loss for the current epoch
+            logger.info(f'Epoch {epoch}, Loss {train_loss}')
+
+            # Save the weights if the loss decreased
+            if train_loss < min_loss:
+                min_loss = train_loss
+                torch.save(self.state_dict(), ROOT_DIR.joinpath('ca_2_sound.pt'))
+                cnt = 0
+            else:
+                cnt += 1
+                if cnt > patience:
+                    # Stop training if the loss has been decreasing for some time
+                    break
+
     @property
     def device(self):
         return self._device
