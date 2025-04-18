@@ -11,8 +11,6 @@ from norfair import Detection, Tracker, OptimizedKalmanFilterFactory
 from tqdm import tqdm
 from loguru import logger
 
-from settings import ROOT_DIR
-
 
 def get_video_meta(vc):
     width, height = int(vc.get(cv.CAP_PROP_FRAME_WIDTH)), int(vc.get(cv.CAP_PROP_FRAME_HEIGHT))
@@ -459,7 +457,7 @@ class SoundMapper(nn.Module):
         # Scale and return the frequencies for X and Y coordinates
         return out
 
-    def train_nn(self, dset, loss_fn, nb_epoch, batch_size, patience: int = 5):
+    def train_nn(self, weight_path, dset, loss_fn, nb_epoch, batch_size, patience: int = 5):
         """Uses the given dataset and loss function to train the model.
         """
 
@@ -495,19 +493,20 @@ class SoundMapper(nn.Module):
 
             train_loss /= len(dl)
 
-            # Display the loss for the current epoch
-            logger.info(f'Epoch {epoch}, Loss {train_loss}')
-
             # Save the weights if the loss decreased
             if train_loss < min_loss:
                 min_loss = train_loss
-                torch.save(self.state_dict(), ROOT_DIR.joinpath('ca_2_sound.pt'))
+                torch.save(self.state_dict(), weight_path)
                 cnt = 0
             else:
                 cnt += 1
                 if cnt > patience:
                     # Stop training if the loss has been decreasing for some time
                     break
+
+        # Return the loss
+        logger.info(f'Min Loss {min_loss}')
+        return min_loss
 
     @property
     def device(self):
