@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-import numpy as np
 import cv2 as cv
 from tqdm import tqdm
 
-from utils import MvTracker, get_video_meta
+from utils import MvTracker, get_video_meta, VideoIterator
 
 
 colors = [
@@ -25,34 +24,26 @@ thres = 40
 win_name = 'Debug'
 
 # Declare a video input
-vc = cv.VideoCapture('Data/test.mov')
-try:
+with VideoIterator('Data/test.mov') as vi:
     # Create a named window to display the results
     cv.namedWindow(win_name, cv.WINDOW_NORMAL | cv.WINDOW_KEEPRATIO | cv.WINDOW_GUI_NORMAL)
 
     # Extract information about the video
-    vid_w, vid_h, fps, tot_frames = get_video_meta(vc)
+    vid_w, vid_h, fps, tot_frames = get_video_meta(vi)
 
     # Instantiate a movement tracker
     tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50)
     prog = tqdm(desc='Frames', total=tot_frames, unit='fps', position=0)
-    while True:
-        ret, frame = vc.read()
-        if not ret:
-            break
-
+    for frame in vi:
         # Track objects
         tracker.track(frame)
-
-        for tid, tracks in tracker.trajectories.items():
-            # Draw whole trajectory
-            for idx in range(1, len(tracks)):
-                cv.line(frame, np.intp(tracks[idx - 1].center), np.intp(tracks[idx].center), colors[tid%len(colors)][::-1], 2)
+        for obj in tracker.tracked_objects:
+            center = obj.estimate.squeeze(axis=0).astype(int).tolist()
+            cv.circle(frame, center, 2, colors[obj.id%len(colors)][::-1], -1)
 
             # Draw Instantaneous Center of Rotation
             try:
-                icrs = tracker.icrs[tid][-fps // 2:]
-                icr = np.stack(icrs, axis=0).mean(axis=0).astype(int)
+                icr = tracker.icrs[obj.id].astype(int).tolist()
                 frame = cv.circle(frame, icr, 1, (0, 0, 255), 3)
             except KeyError:
                 pass
@@ -60,11 +51,6 @@ try:
         cv.imshow(win_name, frame)
         cv.pollKey()
         prog.update()
-except KeyboardInterrupt:
-    pass
-finally:
-    # Close the video stream
-    vc.release()
 
-    # Close all windows
-    cv.destroyAllWindows()
+# Close all windows
+cv.destroyAllWindows()
