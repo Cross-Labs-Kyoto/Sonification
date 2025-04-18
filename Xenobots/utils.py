@@ -5,10 +5,13 @@ from collections import deque
 import numpy as np
 import torch
 from torch import nn
+from torch.utils.data import Dataset, DataLoader
 import cv2 as cv
 from norfair import Detection, Tracker, OptimizedKalmanFilterFactory
 from tqdm import tqdm
 from loguru import logger
+
+from settings import ROOT_DIR
 
 
 def get_video_meta(vc):
@@ -352,6 +355,37 @@ class VideoIterator(cv.VideoCapture):
         if not ret:
             raise StopIteration
         return frame
+
+
+class Memory(Dataset):
+    """Aggregates unique experiences to use for training models."""
+
+    def __init__(self):
+        super().__init__()
+
+        # Keep track of inputs added to the dataset to make sure they are unique
+        self._in_set = set()
+        self._data = None
+
+    def add(self, inpt, targ):
+        """Adds an (input, target) pair to the dataset, if they are not already part of it."""
+
+        inpt_lst = tuple(inpt.tolist())
+        if inpt_lst not in self._in_set:
+            # Add the record to the dataset
+            datum = torch.tensor((inpt, targ), dtype=torch.float32).unsqueeze(0)
+            if self._data is None:
+                self._data = datum
+            else:
+                self._data = torch.vstack([self._data, datum])
+            self._in_set.add(inpt_lst)
+
+    def __len__(self):
+        return len(self._in_set)
+
+    def __getitem__(self, idx):
+        # Return the corresponding input and target
+        return self._data[idx]
 
 
 class SoundMapper(nn.Module):
