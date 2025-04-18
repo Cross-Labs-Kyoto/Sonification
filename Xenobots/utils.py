@@ -491,11 +491,8 @@ class RecurrentSoundMapper(SoundMapper):
 class AttentionSoundMapper(SoundMapper):
     """Defines a trainable attention-based mapping between xenobot movement features and sound."""
 
-    def __init__(self, nb_ins: int, hidden_lays: list[int], nb_heads: int, embed_size: int,
-                 l_rate: float = 1e-3,
-                 fmin: int = 20, fmax: int = 20000,
-                 amin: float = 0, amax: float = 1,
-                 device: str = 'cuda'):
+    def __init__(self, nb_ins: int, hidden_lays: list[int], nb_heads: int, embed_size: int, nb_outs: int = 2,
+                 l_rate: float = 1e-3, device: str = 'cuda'):
         """Declares an attention-based mapper linking input features to frequency and amplitude.
 
         Parameters
@@ -517,25 +514,13 @@ class AttentionSoundMapper(SoundMapper):
             l_rate: float, optional
                 The step size for updating the network's parameters.
 
-            fmin: int, optional
-                The minimum frequency of the generated sound.
-
-            fmax: int, optional
-                The maximum frequency of the generated sound.
-
-            amin: int, optional
-                The minimum amplitude of the generated sound.
-
-            amax: int, optional
-                The maximum amplitude of the generated sound.
-
             device: {'cuda', 'cpu', 'auto'}, optional
                 The type of device to use for computation.
 
         """
 
         # Initialize the parent SoundMapper
-        super().__init__(embed_size, hidden_lays, l_rate, fmin, fmax, amin, amax, device)
+        super().__init__(embed_size, hidden_lays, nb_outs, l_rate, device)
 
         # Define embedding and attention layer
         # Assumes an MLP embedding layer
