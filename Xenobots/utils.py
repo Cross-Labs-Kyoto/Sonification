@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 from math import pow
 from collections import deque
-
+import hashlib
 import numpy as np
 import torch
 from torch import nn
+from torch.utils.data import Dataset, DataLoader
 import cv2 as cv
 from norfair import Detection, Tracker, OptimizedKalmanFilterFactory
 from tqdm import tqdm
@@ -17,7 +18,7 @@ def get_video_meta(vc):
     tot_frames = int(vc.get(cv.CAP_PROP_FRAME_COUNT))
 
     return width, height, fps, tot_frames
-    
+
 
 def get_contours(frame, thres):
     # Convert color to gradients of gray
@@ -133,7 +134,7 @@ def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
             # Compute the left, right panning
             left = -(np.cos(np.abs(curr_polar[1]))).item()
             right = (np.cos(np.abs(curr_polar[1]))).item()
-            
+
             if tid not in pans:
                 pans[tid] = {'left': [0] * tracker.starts[tid] + [left],
                              'right': [0] * tracker.starts[tid] + [right]}
@@ -219,7 +220,7 @@ class MvTracker(object):
 
     def track(self, frame):
         """Builds trajectories for detected objects.
-        
+
         Parameters
         ----------
         frame: numpy.ndarray
@@ -227,7 +228,7 @@ class MvTracker(object):
 
         """
 
-        
+
         # Find contours
         contours, hierarchy = get_contours(frame, self._canny_thres)
 
@@ -263,13 +264,13 @@ class MvTracker(object):
 
             if len(indices) > 10:
                 logger.warning(f'Detected an awful lot of objects ({len(indices)})!!! Increase the canny threshold for better detection.')
-            
+
             # Keep only non-overlapping bboxes
             bboxes = bboxes[indices]
 
             # Find the center of every bboxes
             centers = bboxes[:, :2] + bboxes[:, 2:] / 2
-            
+
             # Need to add a dimension to fit NorFair input format
             centers = np.expand_dims(centers, axis=1)
 
@@ -354,7 +355,7 @@ class MvTracker(object):
         if objs is None:
             return []
         return objs
-        
+
 
 class VideoIterator(cv.VideoCapture):
     """Turns OpenCV's video capture into a fully managed iterator."""
@@ -380,14 +381,49 @@ class VideoIterator(cv.VideoCapture):
         return frame
 
 
+class Memory(Dataset):
+    """Aggregates unique experiences to use for training models."""
+
+    def __init__(self):
+        super().__init__()
+
+        # Keep track of inputs added to the dataset to make sure they are unique
+        self._in_set = set()
+        self._data = None
+        self._inpts = None
+        self._targs = None
+
+    def add(self, inpt, targ):
+        """Adds an (input, target) pair to the dataset, if they are not already part of it."""
+
+        # Computes a hash of the input
+        inpt_hash = hashlib.sha256(inpt.tobytes(), usedforsecurity=False)
+
+        # If not a duplicate
+        if inpt_hash not in self._in_set:
+            # Add the record to the dataset
+            inpt = torch.tensor(inpt, dtype=torch.float32).unsqueeze(0)
+            targ = torch.tensor(targ, dtype=torch.float32).unsqueeze(0)
+            if self._inpts is None:
+                self._inpts = inpt
+                self._targs = targ
+            else:
+                self._inpts = torch.vstack([self._inpts, inpt])
+                self._targs = torch.vstack([self._targs, targ])
+            self._in_set.add(inpt_hash)
+
+    def __len__(self):
+        return len(self._in_set)
+
+    def __getitem__(self, idx):
+        # Return the corresponding input and target
+        return self._inpts[idx], self._targs[idx]
+
+
 class SoundMapper(nn.Module):
     """Defines a trainable mapping between xenobot movement features, and sound (more specifically, frequency and amplitude)."""
 
-    def __init__(self, nb_ins: int, hidden_lays: list[int],
-                 l_rate: float = 1e-3,
-                 fmin: int = 20, fmax: int = 20000,
-                 amin: float = 0, amax: float = 1,
-                 device: str = 'cuda'):
+    def __init__(self, nb_ins: int, hidden_lays: list[int], nb_outs: int = 2, l_rate: float = 1e-3, device: str = 'cuda'):
         """Declares a multi-layer perceptron linking input features to frequency and amplitude.
 
         Parameters
@@ -404,18 +440,6 @@ class SoundMapper(nn.Module):
             l_rate: float, optional
                 The step size for updating the network's parameters.
 
-            fmin: int, optional
-                The minimum frequency of the generated sound.
-
-            fmax: int, optional
-                The maximum frequency of the generated sound.
-
-            amin: int, optional
-                The minimum amplitude of the generated sound.
-
-            amax: int, optional
-                The maximum amplitude of the generated sound.
-
             device: {'cuda', 'cpu', 'auto'}, optional
                 The type of device to use for computation.
 
@@ -423,9 +447,6 @@ class SoundMapper(nn.Module):
 
         # Initialize the parent class
         super().__init__()
-
-        # We assume only two outputs
-        nb_out = 2
 
         # Define the device to use for computation
         if device in ['cuda', 'cpu']:
@@ -436,7 +457,7 @@ class SoundMapper(nn.Module):
         # Define the network's architecture
         if len(hidden_lays) == 0:
             self._linear = nn.Sequential(
-                nn.Linear(nb_ins, out_features=nb_out, device=self._device),
+                nn.Linear(nb_ins, out_features=nb_outs, device=self._device),
                 nn.Sigmoid()
             )
         else:
@@ -445,88 +466,92 @@ class SoundMapper(nn.Module):
             for hid_size in hidden_lays:
                 # Add layer
                 self._linear.append(nn.Linear(in_size, hid_size, device=self._device))
-                self._linear.append(nn.ReLU(inplace=True))  # Could be replaced with Tanh()
+                #self._linear.append(nn.ReLU(inplace=True))  # Could be replaced with Tanh()
+                self._linear.append(nn.Tanh())
                 self._linear.append(nn.LayerNorm(hid_size, device=self._device))
                 # Record size for next input
                 in_size = hid_size
 
             # Add output layer
-            self._linear.append(nn.Linear(in_size, nb_out, device=self._device))
-            self._linear.append(nn.Sigmoid())
+            self._linear.append(nn.Linear(in_size, nb_outs, device=self._device))
+            #self._linear.append(nn.Sigmoid())
+            self._linear.append(nn.Hardsigmoid())
 
         # Define optimizer
-        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
-
-        # Keep track of the frequency and amplitude intervals
-        self._freqs = [fmin, fmax]
-        self._amps = [amin, amax]
+        self.optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
 
     def forward(self, x):
         # Make sure the input is on the right device
         if x.device != self._device:
             x = x.to(self._device)
-        
+
         # Propagate the input through the multi-layer perceptron
-        out = self._linear(x)
+        out = self._linear(x).squeeze()
 
-        # Scale and return the frequency and amplitude
-        freq = out[0] * (self._freqs[1] - self._freqs[0]) + self._freqs[0]
-        amp = out[1] * (self._amps[1] - self._amps[0]) + self._amps[0]
-        return freq, amp
+        # Scale and return the frequencies for X and Y coordinates
+        return out
+
+    def train_nn(self, weight_path, dset, loss_fn, nb_epoch, batch_size, patience: int = 5):
+        """Uses the given dataset and loss function to train the model.
+        """
+
+        # Get a dataloader from the provided dataset
+        dl = DataLoader(dset, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=4)
+
+        # Switch the model to training mode
+        self = self.train()
+
+        # Train the network
+        min_loss = np.inf
+        cnt = 0
+        for epoch in range(nb_epoch):
+            train_loss = 0
+            for inpts, targs in dl:
+                # Reset the gradient
+                self.optim.zero_grad()
+
+                # Extract the inputs and targets
+                inpts = inpts.to(self._device)
+                targs = targs.to(self._device)
+
+                # Compute the predictions
+                preds = self(inpts)
+
+                # Compute and back-propagate loss
+                loss = loss_fn(preds, targs)
+                loss.backward()
+                self.optim.step()
+
+                # Aggregate the loss
+                train_loss += loss.item()
+
+            train_loss /= len(dl)
+
+            # Save the weights if the loss decreased
+            if train_loss < min_loss:
+                min_loss = train_loss
+                torch.save(self.state_dict(), weight_path)
+                cnt = 0
+            else:
+                cnt += 1
+                if cnt > patience:
+                    # Stop training if the loss has been decreasing for some time
+                    break
+
+        # Return the loss
+        logger.info(f'Min Loss {min_loss}')
+        return min_loss
 
     @property
-    def fmin(self):
-        return self._freqs[0]
-
-    @property
-    def fmax(self):
-        return self._freqs[1]
-
-    @property
-    def amin(self):
-        return self._amps[0]
-
-    @property
-    def amax(self):
-        return self._amps[1]
-
-    @fmin.setter
-    def fmin(self, val: int):
-        if val >= self._freqs[1]:
-            raise ValueError(f'The minimum frequency should be less than the maximum, but got: {val} (>= {self._freqs[1]}')
-        else:
-            self._freqs[0] = val
-
-    @fmax.setter
-    def fmax(self, val: int):
-        if val <= self._freqs[0]:
-            raise ValueError(f'The maximum frequency should be greater than the maximum, but got: {val} (<= {self._freqs[0]}')
-        else:
-            self._freqs[1] = val
-
-    @amin.setter
-    def amin(self, val: float):
-        if val >= self._amps[1]:
-            raise ValueError(f'The minimum amplitude should be less than the maximum, but got: {val} (>= {self._amps[1]}')
-        else:
-            self._amps[0] = max(0, val)
-
-    @amax.setter
-    def amax(self, val: float):
-        if val <= self._amps[0]:
-            raise ValueError(f'The maximum amplitude should be greater than the maximum, but got: {val} (<= {self._amps[0]}')
-        else:
-            self._amps[1] = min(1, val)
+    def device(self):
+        return self._device
 
 
 class RecurrentSoundMapper(SoundMapper):
     """Defines a trainable recurrent mapping between xenobot movement features and sound."""
 
     def __init__(self, nb_ins: int, hidden_lays: list[int], nb_lstm: int, size_lstm: int,
-                 l_rate: float = 1e-3,
-                 fmin: int = 20, fmax: int = 20000,
-                 amin: float = 0, amax: float = 1,
-                 device: str = 'cuda'):
+                 nb_outs: int = 2, l_rate: float = 1e-3, device: str = 'cuda'):
         """Declares a lstm-based network linking input features to frequency and amplitude.
 
         Parameters
@@ -549,18 +574,6 @@ class RecurrentSoundMapper(SoundMapper):
             l_rate: float, optional
                 The step size for updating the network's parameters.
 
-            fmin: int, optional
-                The minimum frequency of the generated sound.
-
-            fmax: int, optional
-                The maximum frequency of the generated sound.
-
-            amin: int, optional
-                The minimum amplitude of the generated sound.
-
-            amax: int, optional
-                The maximum amplitude of the generated sound.
-
             device: {'cuda', 'cpu', 'auto'}, optional
                 The type of device to use for computation.
 
@@ -570,14 +583,14 @@ class RecurrentSoundMapper(SoundMapper):
         assert nb_lstm != 0 and size_lstm != 0, 'The number and size of lstm layers cannot be zero. Use a standard `SoundMapper()` if this is what you want.'
 
         # Initialize the SoundMapper
-        super().__init__(size_lstm, hidden_lays, l_rate, fmin, fmax, amin, amax, device)
+        super().__init__(size_lstm, hidden_lays, nb_outs, l_rate, device)
 
         # Declare the recurrent portion of the network
         self._lstm = nn.LSTM(nb_ins, size_lstm, num_layers=nb_lstm, batch_first=True, device=self._device)
 
         # Redefine the optimizer
-        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
-        
+        self.optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
+
 
     def forward(self, x):
         # Make sure the input is on the same device as the model
@@ -589,17 +602,14 @@ class RecurrentSoundMapper(SoundMapper):
         out, _ = self._lstm(x)
 
         # Return the result of propagating the last hidden state through the linear portion
-        return super(out[:, -1])
+        return super().forward(out[:, -1, :])
 
 
 class AttentionSoundMapper(SoundMapper):
     """Defines a trainable attention-based mapping between xenobot movement features and sound."""
 
-    def __init__(self, nb_ins: int, hidden_lays: list[int], nb_heads: int, embed_size: int,
-                 l_rate: float = 1e-3,
-                 fmin: int = 20, fmax: int = 20000,
-                 amin: float = 0, amax: float = 1,
-                 device: str = 'cuda'):
+    def __init__(self, nb_ins: int, hidden_lays: list[int], nb_heads: int, embed_size: int, nb_outs: int = 2,
+                 l_rate: float = 1e-3, device: str = 'cuda'):
         """Declares an attention-based mapper linking input features to frequency and amplitude.
 
         Parameters
@@ -621,25 +631,13 @@ class AttentionSoundMapper(SoundMapper):
             l_rate: float, optional
                 The step size for updating the network's parameters.
 
-            fmin: int, optional
-                The minimum frequency of the generated sound.
-
-            fmax: int, optional
-                The maximum frequency of the generated sound.
-
-            amin: int, optional
-                The minimum amplitude of the generated sound.
-
-            amax: int, optional
-                The maximum amplitude of the generated sound.
-
             device: {'cuda', 'cpu', 'auto'}, optional
                 The type of device to use for computation.
 
         """
 
         # Initialize the parent SoundMapper
-        super().__init__(embed_size, hidden_lays, l_rate, fmin, fmax, amin, amax, device)
+        super().__init__(embed_size, hidden_lays, nb_outs, l_rate, device)
 
         # Define embedding and attention layer
         # Assumes an MLP embedding layer
@@ -652,7 +650,7 @@ class AttentionSoundMapper(SoundMapper):
         self._attn = nn.MultiheadAttention(embed_size, nb_heads, batch_first=True, device=self._device)
 
         # Update the optimizer's definition
-        self._optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
+        self.optim = torch.optim.SGD(self.parameters(), lr=l_rate, momentum=0.9, weight_decay=1e-5, maximize=False)  # Assumes we want to minimize the loss
 
     def forward(self, x):
         # Make sure the input is on the same device as the model
@@ -663,4 +661,4 @@ class AttentionSoundMapper(SoundMapper):
         out = self._attn(self.embed(x))
 
         # Return the frequency and amplitude
-        return super(out)
+        return super().forward(out)

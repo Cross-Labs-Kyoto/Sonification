@@ -19,6 +19,7 @@ dependencies = [
     "norfair (>=2.2.0,<3.0.0)",
     "torch (>=2.6.0,<3.0.0)",
     "pedalboard (>=0.9.16,<0.10.0)",
+    "cellpylib (>=2.4.0,<3.0.0)",
 ]
 
 
