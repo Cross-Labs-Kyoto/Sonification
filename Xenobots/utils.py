@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from math import pow
 from collections import deque
-
+import hashlib
 import numpy as np
 import torch
 from torch import nn
@@ -368,15 +368,18 @@ class Memory(Dataset):
     def add(self, inpt, targ):
         """Adds an (input, target) pair to the dataset, if they are not already part of it."""
 
-        inpt_lst = tuple(inpt.tolist())
-        if inpt_lst not in self._in_set:
+        # Computes a hash of the input
+        inpt_hash = hashlib.sha256(inpt.tobytes(), usedforsecurity=False)
+
+        # If not a duplicate
+        if inpt_hash not in self._in_set:
             # Add the record to the dataset
             datum = torch.tensor((inpt, targ), dtype=torch.float32).unsqueeze(0)
             if self._data is None:
                 self._data = datum
             else:
                 self._data = torch.vstack([self._data, datum])
-            self._in_set.add(inpt_lst)
+            self._in_set.add(inpt_hash)
 
     def __len__(self):
         return len(self._in_set)
