@@ -160,7 +160,6 @@ while True:
                             targs = [0]
 
                             # Store the experience in memory
-                            logger.debug(in_data.shape)
                             memory.add(in_data.squeeze(axis=0), targs)
 
                             # Generate the associated audio chunk
