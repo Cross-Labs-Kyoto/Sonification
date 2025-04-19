@@ -215,6 +215,9 @@ if __name__ == '__main__':
                         for pos in mp_rule.agt_poses:
                             # Generate the frequencies corresponding to both agents
                             pred = mapper(torch.tensor(pos, dtype=torch.float32)).cpu()
+                            # TODO: Split the frequency interval in half.
+                            # TODO: Use the first interval for the X axis, and the second one for the Y axis.
+                            # TODO: Otherwise, mapping between position and tone is not bijection
                             freqs.append(pred * (args.fmax - args.fmin) + args.fmin)
 
                             # Get target frequencies
