@@ -8,7 +8,7 @@ import librosa
 from pedalboard.io import AudioFile, AudioStream
 from loguru import logger
 
-from utils import MvTracker, get_video_meta, VideoIterator, RecurrentSoundMapper
+from utils import MvTracker, get_video_meta, VideoIterator, RecurrentSoundMapper, Memory
 from settings import ROOT_DIR
 
 
@@ -17,20 +17,33 @@ parser = ArgumentParser()
 parser.add_argument('filename', type=str,
                     help='Either the name of a video file to process, or a camera ID.')
 parser.add_argument('-t', '--thres', dest='canny_thres', type=int, default=40)
-parser.add_argument('-o', '--output', dest='out', type=str, default='default',
+parser.add_argument('-e', '--epochs', dest='nb_epoch', type=int, default=200,
+                    help='The number of epochs to train the model for.')
+parser.add_argument('-b', '--batch_size', dest='batch_size', type=int, default=64,
+                    help='The batch size to use when training the model.')
+parser.add_argument('-o', '--output', dest='out', type=str, default='Default ALSA Output (currently PipeWire Media Server)',
                     help='Either the relative path to a file or the name of a device to which the audio will be written.')
 parser.add_argument('-w', '--weight', dest='load', type=str,
                     help="The relative path to the file from which to load the model's parameters.")
 parser.add_argument('-l', '--learn_rate', dest='l_rate', type=float, default=1e-3,
                     help="The length of the step for each iteration of the gradient descent algorithm.")
-parser.add_argument('-v', '--volume', dest='vol', type=float, default=0.5,
-                    help="The volume in percentage at which to output audio. Defaults to: 0.5")
 parser.add_argument('-r', '--sample_rate', dest='sample_rate', type=int, default=44100,
                     help="The sample rate to use for the audio output.")
 parser.add_argument('-s', '--skip', dest='f_skip', type=float, default=0,
                     help='The number of seconds to skip between tracking events. The provided value should be a float > 0.')
 parser.add_argument('--list', dest='lst_devices', action='store_true',
                     help='List all available output audio devices.')
+parser.add_argument('-m', '--freq_min', dest='fmin', type=int, default=200,
+                    help='The minimum frequency to use when generating tones.')
+parser.add_argument('-M', '--freq_max', dest='fmax', type=int, default=3200,
+                    help='The maximum frequency to use when generating tones.')
+parser.add_argument('-a', '--amp_min', dest='amin', type=int, default=0,
+                    help='The minimum amplitude to use when generating tones.')
+parser.add_argument('-A', '--amp_max', dest='amax', type=int, default=0.5,
+                    help='The maximum amplitude to use when generating tones.')
+parser.add_argument('--test', dest='testing', action='store_true',
+                    help='A flag indicating whether we should execute the program in testing mode, or not.')
+
 
 # And parse all command line arguments
 args = parser.parse_args()
@@ -47,7 +60,7 @@ if args.lst_devices:
 # Define where the audio output should go
 if args.out in AudioStream.output_device_names:
     audio_out_cls = AudioStream
-    audio_out_kwargs = dict(output_device_name=args.out, num_output_channels=1, sample_rate=args.sample_rate) 
+    audio_out_kwargs = dict(output_device_name=args.out, num_output_channels=1, sample_rate=args.sample_rate)
 else:
     fname = Path(args.out).expanduser().resolve().with_suffix('.mp3')
     audio_out_cls = AudioFile
@@ -63,7 +76,7 @@ except ValueError:
     video_in = str(video_in)
 
 # Instantiate a sound mapper
-model = RecurrentSoundMapper(nb_ins=1, hidden_lays=[5, 5], nb_lstm=1, size_lstm=10, l_rate=args.l_rate, fmin=500, fmax=2000, amin=0, amax=args.vol, device='auto')
+model = RecurrentSoundMapper(nb_ins=1, hidden_lays=[5, 5], nb_lstm=1, size_lstm=10, l_rate=args.l_rate, device='auto')
 
 # Load the parameters if necessary
 if args.load is not None:
@@ -73,9 +86,17 @@ if args.load is not None:
         model.load_state_dict(state_dict)
     else:
         logger.error(f'The provided weight file, does not exist or is not a file: {weight_file}')
+else:
+    weight_file = ROOT_DIR.joinpath('Models', 'mv_2_snd.pt')
+
+# Display the model's topology
+logger.info(model)
 
 # TODO: Declare the loss
-Loss = None
+loss_fn = None
+
+# Initialize a memory to aggregate experience and train the model
+memory = Memory()
 
 # Loop forever (or until the user presses ctrl+c and asks to quit the program)
 while True:
@@ -86,9 +107,6 @@ while True:
 
             # Instantiate a new movement tracker
             tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50, canny_thres=args.canny_thres)
-            
-            # Rest the gradient
-            model.optim.zero_grad()
 
             # Pre-compute the amplitude to apply to all audio chunks
             # This is to prevent any clipping noise between chunks
@@ -98,59 +116,70 @@ while True:
             log_amp = np.hstack([log_amp, np.ones((full_len, )), log_amp[::-1]]).astype(np.float32)
 
             # Process the video and generate audio output
-            speeds = deque(maxlen=30)
-            preds = []
+            speeds = deque(maxlen=fps)
+
+            # Switch the model into inference mode
+            model = model.eval()
+
             try:
-                for f_idx, frame in enumerate(vi):
-                    # If requested skip frames
-                    if args.f_skip != 0:
-                        if f_idx % int(args.f_skip * fps) != 0:
+                with torch.no_grad():
+                    for f_idx, frame in enumerate(vi):
+                        # If requested skip frames
+                        if args.f_skip != 0:
+                            if f_idx % int(args.f_skip * fps) != 0:
+                                continue
+
+                        # Track objects
+                        tracker.track(frame)
+
+                        # We assume that only a single object is tracked
+                        # TODO: If assumption is not correct, then manage a list of models, and save their parameters accordingly
+                        try:
+                            obj = tracker.tracked_objects[0]
+                        except IndexError:
                             continue
 
-                    # Track objects
-                    tracker.track(frame)
+                        if obj.id in tracker.rel_pos:
+                            # Keep track of the agent's rotational speed over a length of time
+                            old_pos, curr_pos = tracker.rel_pos[obj.id]
+                            speeds.append((curr_pos[1] - old_pos[1]) * fps)
 
-                    # We assume that only a single object is tracked
-                    # TODO: If assumption is not correct, then manage a list of models, and save their parameters accordingly
-                    try:
-                        obj = tracker.tracked_objects[0]
-                    except IndexError:
-                        continue
+                            # Skip sound generation and playing if we don't have enough input data
+                            if len(speeds) < fps:
+                                continue
 
-                    if obj.id in tracker.rel_pos:
-                        # Keep track of the agent's rotational speed over a length of time
-                        old_pos, curr_pos = tracker.rel_pos[obj.id]
-                        speeds.append((curr_pos[1] - old_pos[1]) * fps)
-                        
-                        # Format the input and compute the frequency and amplitude
-                        in_data = np.array(speeds).reshape((1, -1, 1)).astype(np.float32)
-                        freq, amp = model(torch.from_numpy(in_data))
+                            # Format the input and compute the frequency and amplitude
+                            in_data = np.array(speeds).reshape((1, -1, 1)).astype(np.float32)
+                            preds = model(torch.from_numpy(in_data)).cpu().numpy()
 
-                        # Generate the associated audio chunk
-                        chunk = librosa.tone(frequency=freq.detach().cpu().item(), sr=args.sample_rate, length=int(args.sample_rate/fps)).astype(np.float32)
+                            # Translate the model's output into a frequency and amplitude
+                            freq = preds[0] * (args.fmax - args.fmin) + args.fmin
+                            amp = preds[1] * (args.amax - args.amin) + args.amin
 
-                        # Store the list of outputs
-                        preds.append((freq, amp))
+                            # TODO: Compute the target outputs based on the input data
+                            targs = [0]
 
-                        # Play the sound
-                        if isinstance(audio_out, AudioStream):
-                            audio_out.write(chunk * amp.detach().cpu().item() * log_amp, sample_rate=args.sample_rate)
-                        else:
-                            audio_out.write(chunk * amp.detach().cpu().item() * log_amp)
-                            
+                            # Store the experience in memory
+                            logger.debug(in_data.shape)
+                            memory.add(in_data.squeeze(axis=0), targs)
+
+                            # Generate the associated audio chunk
+                            chunk = librosa.tone(frequency=freq, sr=args.sample_rate, length=int(args.sample_rate/fps)).astype(np.float32)
+
+                            # Play the sound
+                            if isinstance(audio_out, AudioStream):
+                                audio_out.write(chunk * amp * log_amp, sample_rate=args.sample_rate)
+                            else:
+                                audio_out.write(chunk * amp * log_amp)
+
+                        # TODO: Adjust the frequency of training by changing the last part: `10 * fps`
+                        if not args.testing and len(memory) > 2 * args.batch_size and f_idx % (10 * fps) == 0:
+                            # Train the model based on the aggregated experience
+                            model.train_nn(weight_file, memory, loss_fn, args.nb_epoch, args.batch_size, patience=int(args.nb_epoch * 0.1))
+
             except KeyboardInterrupt:
                 pass
             finally:
-                # Compute loss and optimize parameters
-                # TODO: provide the necessary targets to the loss function
-                loss = Loss(preds, targ)
-                loss.backward()
-                model.optim.step()
-
-                # Save parameters
-                state_dict = model.state_dict()
-                torch.save(state_dict, ROOT_DIR.joinpath('mv_2_sound.pt'))
-
                 # Pause until an answer is given
                 res = input('Do you want to quit the program (y/N): ')
                 if res.lower() == 'y':
