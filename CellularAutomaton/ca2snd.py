@@ -210,8 +210,10 @@ if __name__ == '__main__':
                     ca_hist[:, init_poses[1, 0], init_poses[1, 1]] = 1
 
                 while cdist(np.expand_dims(mp_rule.agt_poses[0], axis=0), np.expand_dims(mp_rule.agt_poses[1], axis=0)) > np.sqrt(2) and not END_EVT.is_set():
+                    turn = 0
                     freqs = []
                     with torch.no_grad():
+                        turn += 1
                         for pos in mp_rule.agt_poses:
                             # Generate the frequencies corresponding to both agents
                             pred = mapper(torch.tensor(pos, dtype=torch.float32)).cpu()
@@ -275,8 +277,9 @@ if __name__ == '__main__':
 
                     cool_down -= 1
                     # Once enough memories have been added
-                    if not testing and len(memory) % BATCH_SIZE == 0 and cool_down <= 0:
+                    if not testing and ((len(memory) % BATCH_SIZE == 0 and cool_down <= 0) or turn == 500):
                         cool_down = 50
+                        turn = 0
                         # Train the mapper
                         loss = mapper.train_nn(weight_file, memory, loss_fn, NB_EPOCH, BATCH_SIZE, patience=int(NB_EPOCH * 0.05))
 
