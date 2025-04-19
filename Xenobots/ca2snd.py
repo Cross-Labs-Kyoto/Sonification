@@ -182,7 +182,8 @@ if __name__ == '__main__':
     bins = torch.from_numpy(np.stack([bins, bins], axis=0))
 
     # Start the display and audio threads if necessary
-    if args.debug:
+    debug = args.debug or args.testing
+    if debug:
         threads = [Process(target=display),
                    Process(target=audio, args=(args.audio_dev, args.sr))]
         for thr in threads:
@@ -202,7 +203,7 @@ if __name__ == '__main__':
                 init_poses = np.random.randint(low=0, high=args.ca_size-1, size=(2, 2))
                 mp_rule = MarcoPoloRule(init_poses)
 
-                if args.debug:
+                if debug:
                     # Initialize the CA environment with two agents
                     ca_hist = np.ones((1, args.ca_size, args.ca_size), dtype=int)
                     ca_hist[:, init_poses[0, 0], init_poses[0, 1]] = 1
@@ -258,7 +259,7 @@ if __name__ == '__main__':
                     mp_rule.agt_poses = np.where(mp_rule.agt_poses < 0, args.ca_size - 1, mp_rule.agt_poses)
                     mp_rule.agt_poses = np.where(mp_rule.agt_poses >= args.ca_size, 0, mp_rule.agt_poses)
 
-                    if args.debug:
+                    if debug:
                         # Update CA environment
                         # Timesteps is set to 2 since the initial state is left unchanged in step 1
                         ca_hist = cpl.evolve2d(ca_hist, timesteps=2, apply_rule=mp_rule)
@@ -280,7 +281,7 @@ if __name__ == '__main__':
                         if loss <= args.loss_crit:
                             # Switch to testing mode
                             testing = True
-                            if not args.debug:
+                            if not debug:
                                 logger.info('Training complete.')
                                 exit()
                             else:
@@ -293,7 +294,7 @@ if __name__ == '__main__':
                 break
     finally:
         # Stop the display and audio threads if in debug mode
-        if args.debug:
+        if debug:
             if not END_EVT.is_set():
                 END_EVT.set()
 
