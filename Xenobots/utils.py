@@ -364,6 +364,8 @@ class Memory(Dataset):
         # Keep track of inputs added to the dataset to make sure they are unique
         self._in_set = set()
         self._data = None
+        self._inpts = None
+        self._targs = None
 
     def add(self, inpt, targ):
         """Adds an (input, target) pair to the dataset, if they are not already part of it."""
@@ -374,11 +376,14 @@ class Memory(Dataset):
         # If not a duplicate
         if inpt_hash not in self._in_set:
             # Add the record to the dataset
-            datum = torch.tensor((inpt, targ), dtype=torch.float32).unsqueeze(0)
-            if self._data is None:
-                self._data = datum
+            inpt = torch.tensor(inpt, dtype=torch.float32).unsqueeze(0)
+            targ = torch.tensor(targ, dtype=torch.float32).unsqueeze(0)
+            if self._inpts is None:
+                self._inpts = inpt
+                self._targs = targ
             else:
-                self._data = torch.vstack([self._data, datum])
+                self._inpts = torch.vstack([self._inpts, inpt])
+                self._targs = torch.vstack([self._targs, targ])
             self._in_set.add(inpt_hash)
 
     def __len__(self):
@@ -386,7 +391,7 @@ class Memory(Dataset):
 
     def __getitem__(self, idx):
         # Return the corresponding input and target
-        return self._data[idx]
+        return self._inpts[idx], self._targs[idx]
 
 
 class SoundMapper(nn.Module):
@@ -475,13 +480,13 @@ class SoundMapper(nn.Module):
         cnt = 0
         for epoch in range(nb_epoch):
             train_loss = 0
-            for batch in dl:
+            for inpts, targs in dl:
                 # Reset the gradient
                 self.optim.zero_grad()
 
                 # Extract the inputs and targets
-                inpts = batch[:, 0].to(self._device)
-                targs = batch[:, 1].to(self._device)
+                inpts = inpts.to(self._device)
+                targs = targs.to(self._device)
 
                 # Compute the predictions
                 preds = self(inpts)
