@@ -177,9 +177,16 @@ if __name__ == '__main__':
     # Initialize a dataset to aggregate experience and train the mapper
     memory = Memory()
 
+    # Split the frequency interval in half to ensure the mapping is a bijection
+    lfmin, lfmax = args.fmin, (args.fmax + args.fmin) // 2
+    rfmin, rfmax = (args.fmax + args.fmin) // 2, args.fmax
+    fmin = np.array([lfmin, rfmin])
+    fmax = np.array([lfmax, rfmax])
+
     # Initialize required constants
-    bins = np.linspace(args.fmin, args.fmax, args.ca_size, dtype=np.float32)
-    bins = torch.from_numpy(np.stack([bins, bins], axis=0))
+    left_bin = np.linspace(lfmin, lfmax, args.ca_size, dtype=np.float32)
+    right_bin = np.linspace(rfmin, rfmax, args.ca_size, dtype=np.float32)
+    bins = torch.from_numpy(np.stack([left_bin, right_bin], axis=0))
 
     # Start the display and audio threads if necessary
     debug = args.debug or args.testing
@@ -217,13 +224,10 @@ if __name__ == '__main__':
                         for pos in mp_rule.agt_poses:
                             # Generate the frequencies corresponding to both agents
                             pred = mapper(torch.tensor(pos, dtype=torch.float32)).cpu()
-                            # TODO: Split the frequency interval in half.
-                            # TODO: Use the first interval for the X axis, and the second one for the Y axis.
-                            # TODO: Otherwise, mapping between position and tone is not bijection
-                            freqs.append(pred * (args.fmax - args.fmin) + args.fmin)
+                            freqs.append(pred * (fmax - fmin) + fmin)
 
                             # Get target frequencies
-                            targ = (bins[(0, 1), pos] - args.fmin) / (args.fmax - args.fmin)
+                            targ = (bins[(0, 1), pos] - fmin) / (fmax - fmin)
 
                             # Add the experience to memory
                             memory.add(pos, targ)
