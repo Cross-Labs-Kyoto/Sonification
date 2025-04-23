@@ -132,6 +132,18 @@ def create_env():
     return space, agts, pushable, walls, goal
 
 
+def final(goal, pushable, thres=0.5):
+    # TODO: Based on the overlap between goal and pushable, return True using the given threshold
+    # Return true if distance between centers is bellow a certain fraction of the both radii
+    max_dist = goal.radius + pushable.radius
+    dist = np.linalg.norm(goal.body.position - pushable.body.position).item()
+
+    if dist / max_dist <= thres:
+        return True
+    else:
+        return False
+
+
 # TODO: Turn that into a separate function that can be called from elsewhere
 if __name__ == "__main__":
     # Define the time between simulation loops
