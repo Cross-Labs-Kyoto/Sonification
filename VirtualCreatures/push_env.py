@@ -32,10 +32,6 @@ def display():
                 # Reset the screen
                 screen.fill((255, 255, 255))
 
-                # Draw the walls
-                for w in state['walls']:
-                    pg.draw.line(screen, (0, 0, 0), w[0], w[1], width=int(w[2]))
-
                 # Draw the agents
                 for a in state['agents']:
                     pg.draw.circle(screen, (255, 0, 0), a[0], radius=a[2])
@@ -129,7 +125,7 @@ def create_env():
             space.add(el)
 
     # Return a reference to the environment and every shapes in it
-    return space, agts, pushable, walls, goal
+    return space, agts, pushable, goal
 
 
 def final(goal, pushable, thres=0.5):
@@ -149,7 +145,7 @@ if __name__ == "__main__":
     # Define the time between simulation loops
     dt = 1 / FPS
     # Create the simulation environment
-    env, agts, pushable, walls, goal = create_env()
+    env, agts, pushable, goal = create_env()
 
     # Start the display
     DISP_THR = Process(target=display)
@@ -168,8 +164,7 @@ if __name__ == "__main__":
 
                 # Send new state to display thread
                 # It should be noted that velocities are in the body's frame of reference
-                data = {'walls': [(w.a, w.b, w.radius) for w in walls],
-                        'agents': [(agt.body.position, agt.body.velocity, agt.radius) for agt in agts],
+                data = {'agents': [(agt.body.position, agt.body.velocity, agt.radius) for agt in agts],
                         'pushable': (pushable.body.position, pushable.body.velocity, pushable.radius),
                         'goal': (goal.body.position, goal.radius)}
                 DISP_Q.put(data)
