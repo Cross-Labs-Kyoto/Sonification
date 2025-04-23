@@ -128,8 +128,7 @@ def create_env():
     return space, agts, pushable, goal
 
 
-def final(goal, pushable, thres=0.5):
-    # TODO: Based on the overlap between goal and pushable, return True using the given threshold
+def is_final(goal, pushable, thres=0.5):
     # Return true if distance between centers is bellow a certain fraction of the both radii
     max_dist = goal.radius + pushable.radius
     dist = np.linalg.norm(goal.body.position - pushable.body.position).item()
@@ -163,12 +162,13 @@ if __name__ == "__main__":
                 #       Or in the calling function, and use this as
                 #       generic simulation, similar to openai.gym
 
-                # Send new state to display thread
-                # It should be noted that velocities are in the body's frame of reference
-                data = {'agents': [(agt.body.position, agt.body.velocity, agt.radius) for agt in agts],
-                        'pushable': (pushable.body.position, pushable.body.velocity, pushable.radius),
-                        'goal': (goal.body.position, goal.radius)}
-                DISP_Q.put(data)
+                if DEBUG:
+                    # Send new state to display thread
+                    # It should be noted that velocities are in the body's frame of reference
+                    data = {'agents': [(agt.body.position, agt.body.velocity, agt.radius) for agt in agts],
+                            'pushable': (pushable.body.position, pushable.body.velocity, pushable.radius),
+                            'goal': (goal.body.position, goal.radius)}
+                    DISP_Q.put(data)
 
     except KeyboardInterrupt:
         pass
@@ -186,4 +186,3 @@ if __name__ == "__main__":
                 DISP_Q.close()
 
             DISP_THR.join()
-
