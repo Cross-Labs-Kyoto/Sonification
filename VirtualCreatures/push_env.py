@@ -43,8 +43,12 @@ def display():
 
                 # Draw the pushable
                 p = state['pushable']
-                pg.draw.circle(screen, (0, 255, 0), p[0], radius=p[2])
+                pg.draw.circle(screen, (0, 0, 255), p[0], radius=p[2])
                 pg.draw.line(screen, (0, 0, 0), p[0], p[0] + p[1], width=2)
+
+                # Draw the goal
+                g = state['goal']
+                pg.draw.circle(screen, (0, 255, 0), g[0], radius=g[1], width=2)
 
                 # Actually display elements
                 pg.display.flip()
@@ -52,7 +56,7 @@ def display():
 
                 # Handle events
                 for evt in pg.event.get():
-                    if (evt.type == pg.KEYDOWN and evt.key == pg.K_q) or evt.type == pg.QUIT:
+                    if evt.type == pg.QUIT or (evt.type == pg.KEYDOWN and evt.key in [pg.K_q, pg.K_ESCAPE]):
                         END_EVT.set()
 
         except KeyboardInterrupt:
@@ -70,6 +74,10 @@ def create_env():
     space = pk.Space()
     space.gravity = (0, 0)  # We stay in the X, Y plane
 
+    # Define two groups to filter out the goal from the rest of the elements
+    grp_0 = pk.ShapeFilter(group=0)
+    grp_1 = pk.ShapeFilter(group=1)
+
     # Create walls to delineate environment
     static_body = space.static_body
     walls = [pk.Segment(static_body, a=(0, 0), b=(SIZE, 0), radius=1),
@@ -81,6 +89,7 @@ def create_env():
     for w in walls:
         w.elasticity = 0
         w.friction = 0
+        w.filter = grp_0
 
     # Create two agents
     agts = []
@@ -89,6 +98,7 @@ def create_env():
         shape.friction = 0
         shape.elasticity = 0
         shape.mass = 1
+        shape.filter = grp_0
         agts.append(shape)
 
     # Create a pushable ball or cube
@@ -96,6 +106,12 @@ def create_env():
     pushable.elasticity = 0
     pushable.friction = 0
     pushable.mass = 1
+    pushable.filter = grp_0
+
+    # Create the goal in a random position
+    goal = pk.Circle(pk.Body(body_type=pk.Body.STATIC), radius=SIZE * 0.15)
+    goal.body.position = (np.random.random((2, )) * SIZE).tolist()
+    goal.filter = grp_1
 
     # Randomly set the position and velocity of agents and pushable
     for agt in agts:
@@ -113,7 +129,7 @@ def create_env():
             space.add(el)
 
     # Return a reference to the environment and every shapes in it
-    return space, agts, pushable, walls
+    return space, agts, pushable, walls, goal
 
 
 # TODO: Turn that into a separate function that can be called from elsewhere
@@ -121,7 +137,7 @@ if __name__ == "__main__":
     # Define the time between simulation loops
     dt = 1 / FPS
     # Create the simulation environment
-    env, agts, pushable, walls = create_env()
+    env, agts, pushable, walls, goal = create_env()
 
     # Start the display
     DISP_THR = Process(target=display)
@@ -142,7 +158,8 @@ if __name__ == "__main__":
                 # It should be noted that velocities are in the body's frame of reference
                 data = {'walls': [(w.a, w.b, w.radius) for w in walls],
                         'agents': [(agt.body.position, agt.body.velocity, agt.radius) for agt in agts],
-                        'pushable': (pushable.body.position, pushable.body.velocity, pushable.radius)}
+                        'pushable': (pushable.body.position, pushable.body.velocity, pushable.radius),
+                        'goal': (goal.body.position, goal.radius)}
                 DISP_Q.put(data)
 
     except KeyboardInterrupt:
