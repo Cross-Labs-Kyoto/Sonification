@@ -147,9 +147,10 @@ if __name__ == "__main__":
     # Create the simulation environment
     env, agts, pushable, goal = create_env()
 
-    # Start the display
-    DISP_THR = Process(target=display)
-    DISP_THR.start()
+    if DEBUG:
+        # Start the display
+        DISP_THR = Process(target=display)
+        DISP_THR.start()
 
     # Run the simulation
     try:
@@ -172,16 +173,17 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
-        if not END_EVT.is_set():
-            END_EVT.set()
+        if DEBUG:
+            if not END_EVT.is_set():
+                END_EVT.set()
 
-        while not DISP_Q.empty():
-            try:
-                DISP_Q.get(block=False)
-            except Empty:
-                break
-        if hasattr(DISP_Q, 'close'):
-            DISP_Q.close()
+            while not DISP_Q.empty():
+                try:
+                    DISP_Q.get(block=False)
+                except Empty:
+                    break
+            if hasattr(DISP_Q, 'close'):
+                DISP_Q.close()
 
-        DISP_THR.join()
+            DISP_THR.join()
 
