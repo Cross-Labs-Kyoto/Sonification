@@ -6,7 +6,7 @@ import numpy as np
 import pymunk as pk
 import pygame as pg
 
-# TODO: Added bonus if we can get a fourth object whose collision handler allows the object to pass through, but detects when one enters the other.
+
 DEBUG = True
 FPS = 30
 SIZE = 800
@@ -139,7 +139,6 @@ def is_final(goal, pushable, thres=0.5):
         return False
 
 
-# TODO: Turn that into a separate function that can be called from elsewhere
 if __name__ == "__main__":
     # Define the time between simulation loops
     dt = 1 / FPS
@@ -156,11 +155,6 @@ if __name__ == "__main__":
         while not END_EVT.wait(dt):
                 # Move a step forward in time
                 env.step(dt)
-
-                # TODO: Sonification, learning, and decision making
-                #       Either here or in a separate thread/process
-                #       Or in the calling function, and use this as
-                #       generic simulation, similar to openai.gym
 
                 if DEBUG:
                     # Send new state to display thread
