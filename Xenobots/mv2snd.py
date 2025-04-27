@@ -140,6 +140,7 @@ while True:
                             continue
 
                         if obj.id in tracker.rel_pos:
+                            # TODO: We could feed the acceleration (curr_v - old_v) / dt and movement direction arctan2(curr_pos - old_pos[1], curr_pos - old_pos[0])
                             # Keep track of the agent's rotational speed over a length of time
                             old_pos, curr_pos = tracker.rel_pos[obj.id]
                             speeds.append((curr_pos[1] - old_pos[1]) * fps)
