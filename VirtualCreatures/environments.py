@@ -265,6 +265,10 @@ class PushEnv(object):
 
         """
 
+        # If the environment has not been initialized the goal cannot be reached
+        if not self._initialized:
+            return False
+
         # Make sure the threshold is in the range [0, 1]
         thres = max(0, min(1, thres))
 
