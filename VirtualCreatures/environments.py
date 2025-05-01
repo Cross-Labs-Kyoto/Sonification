@@ -276,20 +276,6 @@ class PushEnv(object):
         else:
             return False
 
-    def close(self):
-        """Terminates the display process if necessary."""
-
-        if self._disp:
-            logger.debug('Waiting for the display to consume the queue.')
-            while not self._disp_q.empty():
-                sleep(self._dt)
-
-            logger.debug('Asking the display process to end.')
-            self._disp_end_evt.set()
-
-            logger.debug('Waiting for the display process to exit.')
-            self._disp_proc.join()
-
     def observe(self):
         """Observes the current environment's state.
 
@@ -313,3 +299,17 @@ class PushEnv(object):
 
         # Return an observation object
         return Observation(**obs)
+
+    def close(self):
+        """Terminates the display process if necessary."""
+
+        if self._disp:
+            logger.debug('Waiting for the display to consume the queue.')
+            while not self._disp_q.empty():
+                sleep(self._dt)
+
+            logger.debug('Asking the display process to end.')
+            self._disp_end_evt.set()
+
+            logger.debug('Waiting for the display process to exit.')
+            self._disp_proc.join()
