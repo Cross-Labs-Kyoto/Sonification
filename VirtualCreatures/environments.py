@@ -3,6 +3,7 @@ from itertools import chain
 from collections import namedtuple
 from multiprocessing import Process, Queue, Event
 from queue import Empty
+from time import sleep
 
 import numpy as np
 import pymunk as pk
@@ -73,10 +74,18 @@ def display(q, end_evt, size, fps=30):
         pass
     finally:
         if not end_evt.is_set():
+            # Let everyone know something went wrong
             end_evt.set()
 
         # Gracefully close pygame and all its module
         pg.quit()
+
+        # Empty the queue
+        while not q.empty():
+            try:
+                q.get(block=False)
+            except Empty:
+                break
 
 
 Action = namedtuple('Action', ['acc_agt_1', 'acc_agt_2'], defaults=[(0, 0), (0, 0)])
@@ -100,6 +109,7 @@ class PushEnv(object):
             self._disp_q = Queue()
             self._disp_end_evt = Event()
             self._disp_proc = Process(target=display, args=(self._disp_q, self._disp_end_evt, size), kwargs={'fps': int(1 / dt)})
+            self._disp_proc.start()
 
 
         # Store the environment's parameters
@@ -182,11 +192,14 @@ class PushEnv(object):
             if el.body.body_type != pk.Body.STATIC:
                 self._env.add(el, el.body)
             else:
-                self._enve.add(el)
+                self._env.add(el)
 
         # Set initialized flag
         self._initialized = True
 
+        # Display the environment if necessary
+        if self._disp:
+            self._display_env()
 
         # Return observations corresponding to initial state
         return self.observe()
@@ -220,15 +233,22 @@ class PushEnv(object):
 
             # If necessary send data to the display
             if self._disp:
-                # Compile the environment's state into the format expected by the display process
-                data = {'agents': [(agt.body.position, agt.body.velocity, agt.radius) for agt in self._agts],
-                        'pushable': (self._pushable.body.position, self._pushable.body.velocity, self._pushable.radius),
-                        'goal': (self._goal.body.position, self._goal.radius)}
-                # Weee-!
-                self._disp_q.put(data)
+                self._display_env()
 
         # Return a tuple of observation for the new environment's state, and a flag indicating the end of the task
         return self.observe(), self.is_final()
+
+    def _display_env(self):
+        """Sends environment state to display process."""
+
+        # Only send data to the display if it is alive
+        if not self._disp_end_evt.is_set():
+            # Compile the environment's state into the format expected by the display process
+            data = {'agents': [(agt.body.position, agt.body.velocity, agt.radius) for agt in self._agts],
+                    'pushable': (self._pushable.body.position, self._pushable.body.velocity, self._pushable.radius),
+                    'goal': (self._goal.body.position, self._goal.radius)}
+            # Weee-!
+            self._disp_q.put(data)
 
     def is_final(self, thres=0.5):
         """Checks if environment has reached a final state (i.e.: pushable and goal intersect more than `thres` percent).
@@ -260,14 +280,12 @@ class PushEnv(object):
         """Terminates the display process if necessary."""
 
         if self._disp:
+            logger.debug('Waiting for the display to consume the queue.')
+            while not self._disp_q.empty():
+                sleep(self._dt)
+
             logger.debug('Asking the display process to end.')
             self._disp_end_evt.set()
-            logger.debug('Emptying the display queue.')
-            while not self._disp_q.empty():
-                try:
-                    self._disp_q.get(block=False)
-                except Empty:
-                    break
 
             logger.debug('Waiting for the display process to exit.')
             self._disp_proc.join()
