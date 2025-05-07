@@ -3,10 +3,8 @@ import torch
 from torch import nn
 from torch.distributions.normal import Normal
 
-from loguru import logger
 
-
-class ContinuousRPO(nn.Module):
+class ContinuousRPOAgt(nn.Module):
     """
     Implements a Robust Policy Optimization (RPO) agent, for continuous (action, state) spaces.
     Heavily inspired from: https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/rpo_continuous_action.py
