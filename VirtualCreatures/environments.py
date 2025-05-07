@@ -220,7 +220,7 @@ class PushEnv(object):
         Returns
         -------
         Observation, float, bool
-            A namedtuple corresponding to the observations for the current environment, the reward for performing the action, 
+            A namedtuple corresponding to the observations for the current environment, the reward for performing the action,
             and a boolean flag indicating whether the environment reached a final state.
 
         """
