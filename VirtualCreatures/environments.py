@@ -314,11 +314,11 @@ class PushEnv(object):
         if not self._initialized:
             return None
 
-        # Observe the environment
-        obs = {'pos_push': self._pushable.body.position, 'vel_push': self._pushable.body.velocity, 'pos_goal': self._goal.body.position}
+        # Observe the normalized environment
+        obs = {'pos_push': self._pushable.body.position / self.size, 'vel_push': self._pushable.body.velocity / self.size, 'pos_goal': self._goal.body.position / self.size}
         for idx, agt in enumerate(self._agts):
-            obs[f'pos_agt_{idx + 1}'] = agt.body.position
-            obs[f'vel_agt_{idx + 1}'] = agt.body.velocity
+            obs[f'pos_agt_{idx + 1}'] = agt.body.position / self.size
+            obs[f'vel_agt_{idx + 1}'] = agt.body.velocity / self.size
 
         # Return an observation object
         return Observation(**obs)
