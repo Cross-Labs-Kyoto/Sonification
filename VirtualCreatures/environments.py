@@ -114,10 +114,14 @@ class PushEnv(object):
 
         # Store the environment's parameters
         self.size = size
+        self._diag_size = np.sqrt(2) * size
         self.goal_pos = goal_pos
         self.push_pos = push_pos
         self._dt = dt
         self._initialized = False
+
+        # Keep track of pushable position
+        self._old_push_pos = push_pos
 
     def reset(self):
         """Rebuilds the environment, effectively resetting it for the next experiment.
@@ -183,6 +187,7 @@ class PushEnv(object):
 
         if self.push_pos is None:
             self._pushable.body.position = (np.random.random((2,)) * self.size).tolist()
+            self._old_push_pos = np.copy(self._pushable.body.position)
         else:
             self._pushable.body.position = self.push_pos
         self._pushable.body.velocity = (np.random.random((2,)) * 100).tolist()
@@ -214,8 +219,9 @@ class PushEnv(object):
 
         Returns
         -------
-        Observation, bool
-            A namedtuple corresponding to the observations for the current environment, and a boolean flag indicating whether the environment reached a final state.
+        Observation, float, bool
+            A namedtuple corresponding to the observations for the current environment, the reward for performing the action, 
+            and a boolean flag indicating whether the environment reached a final state.
 
         """
 
@@ -236,7 +242,20 @@ class PushEnv(object):
                 self._display_env()
 
         # Return a tuple of observation for the new environment's state, and a flag indicating the end of the task
-        return self.observe(), self.is_final()
+        return self.observe(), self.reward(), self.is_final()
+
+    def reward(self):
+        """Computes the dense reward based on the difference between the current and previous distance from the pushable to the goal."""
+
+        # Compute the reward based on the normalized distance between the pushable and goal, on the previous and current steps
+        prev_dist = np.linalg.norm(self._old_push_pos - self._goal.body.position) / self._diag_size
+        curr_dist = np.linalg.norm(self._pushable.body.position - self._goal.body.position) / self._diag_size
+        reward = prev_dist - curr_dist
+
+        # Store the pushable position for later processing
+        self._old_push_pos = np.copy(self._pushable.body.position)
+
+        return reward
 
     def _display_env(self):
         """Sends environment state to display process."""
