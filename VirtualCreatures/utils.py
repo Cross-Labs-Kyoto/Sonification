@@ -7,6 +7,72 @@ from torch.utils.data import Dataset, DataLoader
 from loguru import logger
 
 
+class RLMemory(Dataset):
+    """
+    Aggregates experiences in the shape of state, action, reward and done/final.
+    This is primarily intended for use in Reinforcement Learning processes.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        # Keep track of the state, actions, probabilities associated with each action, rewards, computed values, and flags indicating the end of a task
+        self._obs = None
+        self._acts = None
+        self._log_probs = None
+        self._rewards = None
+        self._dones = None
+        self._values = None
+
+
+    def add(self, obs, acts, lprobs, rew, done, val):
+        # Flatten everything and transform into tensors
+        if isinstance(obs, np.ndarray):
+            obs = torch.from_numpy(obs).flatten()
+        else:
+            obs = torch.tensor(obs).flatten()
+
+        if isinstance(acts, np.ndarray):
+            acts = torch.from_numpy(acts).flatten()
+        else:
+            acts = torch.tensor(acts).flatten()
+
+        if isinstance(lprobs, np.ndarray):
+            lprobs = torch.from_numpy(lprobs).flatten()
+        else:
+            lprobs = torch.tensor(lprobs).flatten()
+        
+        # This assumes that reward, done, and value are floats/bools instead of lists or numpy arrays
+        rew = torch.tensor([rew])
+        done = torch.tensor([done])
+        val = torch.tensor([val])
+
+        # Store everything in their respective sub-sets
+        if self._obs is None:
+            # Direct assignment
+            self._obs = obs
+            self._acts = acts
+            self._log_probs = lprobs
+            self._rewards = rew
+            self._dones = done
+            self._values = val
+        else:
+            # Stack at the bottom
+            self._obs = torch.vstack([self._obs, obs])
+            self._acts = torch.vstack([self._acts, acts])
+            self._log_probs = torch.vstack([self._log_probs, lprobs])
+            self._rewards = torch.vstack([self._rewards, rew])
+            self._dones = torch.vstack([self._dones, done])
+            self._values = torch.vstack([self._values, val])
+
+    def __len__(self):
+        # Assume that all subsets are of the same length
+        return len(self._obs)
+
+    def __getitem__(self, idx):
+        return self._obs[idx], self._acts[idx], self._log_probs[idx], self._rewards[idx], self._dones[idx], self._values[idx]
+
+
 class Memory(Dataset):
     """Aggregates unique experiences to use for training models."""
 
