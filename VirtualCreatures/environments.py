@@ -337,3 +337,14 @@ class PushEnv(object):
 
             logger.debug('Waiting for the display process to exit.')
             self._disp_proc.join()
+
+    def act_space(self):
+        # Action is made of amplitudes along the X and Y axis for the agents' accelerations
+        return np.array(Action()).flatten().shape[0]
+
+    def obs_space(self):
+        # Observations is made of:
+        #   The agents' positions, and velocities (8 values)
+        #   The pushable's position and velocity (4 values)
+        #   The goal's position (2 values) <- This is included to allow the network to compute relative positions/distances
+        return np.array(Observation()).flatten().shape[0]
