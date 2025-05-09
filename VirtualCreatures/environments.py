@@ -316,13 +316,21 @@ class PushEnv(object):
             return None
 
         # Observe the normalized environment
-        obs = {'pos_push': self._pushable.body.position / self.size, 'vel_push': self._pushable.body.velocity / self.size, 'pos_goal': self._goal.body.position / self.size}
+        obs_agt1 = {'pos_push': self._pushable.body.position.normalized(),
+                    'vel_push': self._pushable.body.velocity.normalized(),
+                    'pos_goal': self._goal.body.position.normalized()}
+
+        obs_agt2 = obs_agt1.copy()  # Should work since Vec2D is a child class of NamedTuple
+
         for idx, agt in enumerate(self._agts):
-            obs[f'pos_agt_{idx + 1}'] = agt.body.position / self.size
-            obs[f'vel_agt_{idx + 1}'] = agt.body.velocity / self.size
+            obs_agt1[f'pos_agt_{idx + 1}'] = agt.body.position.normalized()
+            obs_agt1[f'vel_agt_{idx + 1}'] = agt.body.velocity.normalized()
+
+            obs_agt2[f'pos_agt_{2 - idx}'] = agt.body.position.normalized()
+            obs_agt2[f'vel_agt_{2 - idx}'] = agt.body.velocity.normalized()
 
         # Return an observation object
-        return Observation(**obs)
+        return Observation(**obs_agt1), Observation(**obs_agt2)
 
     def close(self):
         """Terminates the display process if necessary."""
