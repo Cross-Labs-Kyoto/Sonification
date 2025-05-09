@@ -138,6 +138,7 @@ class PushEnv(object):
         self.push_pos = push_pos
         self._dt = dt
         self._initialized = False
+        self._final_thres = max(0, min(1, final_thres))
 
         # Keep track of pushable position
         self._old_push_pos = push_pos
@@ -288,13 +289,13 @@ class PushEnv(object):
             # Weee-!
             self._disp_q.put(data)
 
-    def is_final(self, thres=0.5):
-        """Checks if environment has reached a final state (i.e.: pushable and goal intersect more than `thres` percent).
+    def get_goal_push_intersect(self):
+        """Computes the ratio by which the goal and pushable overlap."""
 
-        Parameters
-        ----------
-        thres: float
-            The amount of overlap between the pushable and goal above which the task is considered as completed.
+        return np.linalg.norm(self._goal.body.position - self._pushable.body.position).item() / (self._goal.radius + self._pushable.radius)
+
+    def is_final(self):
+        """Checks if environment has reached a final state (i.e.: pushable and goal intersect more than `thres` percent).
 
         Returns
         -------
@@ -307,11 +308,8 @@ class PushEnv(object):
         if not self._initialized:
             return False
 
-        # Make sure the threshold is in the range [0, 1]
-        thres = max(0, min(1, thres))
-
         # Return true if distance between centers is bellow a certain fraction of both radii
-        if np.linalg.norm(self._goal.body.position - self._pushable.body.position).item() / (self._goal.radius + self._pushable.radius) <= thres:
+        if self.get_goal_push_intersect() <= self._final_thres:
             # Reset the init flag, so environment does not get modified after final state
             self._initialized = False
             return True
