@@ -62,9 +62,16 @@ class ContinuousRPOAgt(nn.Module):
         self._actor_std = nn.Parameter(torch.zeros(1, out_size)).to(self._device)
 
     def get_value(self, x):
-        self._critic(x)
+        # Make sure the input is on the same device as the agent
+        x = x.to(self._device)
+
+        # And return the estimated value
+        return self._critic(x)
 
     def get_action_and_value(self, x, action=None):
+        # Make sure the input is on the same device as the agent
+        x = x.to(self._device)
+
         action_mean = self.actor_mean(x)
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
