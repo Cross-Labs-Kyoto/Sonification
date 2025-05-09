@@ -41,7 +41,7 @@ class RLMemory(Dataset):
             lprobs = torch.from_numpy(lprobs).flatten()
         else:
             lprobs = torch.tensor(lprobs).flatten()
-        
+
         # This assumes that reward, done, and value are floats/bools instead of lists or numpy arrays
         rew = torch.tensor([rew])
         done = torch.tensor([done])
