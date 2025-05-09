@@ -41,7 +41,6 @@ class RLMemory(Dataset):
             self._obs = torch.vstack([self._obs, obs])
             self._dones = torch.vstack([self._dones, done])
 
-
     def add_act(self, act, lprobs):
         # Flatten everything and transform into tensors
         if isinstance(act, np.ndarray):
