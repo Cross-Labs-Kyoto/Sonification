@@ -96,17 +96,35 @@ Observation = namedtuple('Observation', ['pos_agt_1', 'vel_agt_1', 'pos_agt_2', 
 class PushEnv(object):
     """Defines a simple cooperative push task and physics based environment."""
 
-    def __init__(self, size, dt, goal_pos=None, push_pos=None, out=False):
+    def __init__(self, size, dt, final_thres=0.5, goal_pos=None, push_pos=None, headless=False):
         """Keeps track of all required parameters defining the current environment.
 
         Parameters
         ----------
+        size: int
+            The size in pixel applied to all sides of the environment.
+
+        dt: int
+            The size of a simulation step. This value is unit-less.
+            Therefore, its significance depends on the context in which the environment is used.
+
+        final_thres: float
+            The threshold defining how much the goal area and the pushable should overlap to consider the task done.
+
+        goal_pos: tuple
+            The position of the goal's center. If None, the goal will be placed in a random location that is reachable, and does not trigger the final flag.
+
+        push_pos: tuple
+            The initial position of the pushable. If None, the pushable will spawn in a non-final random position.
+
+        headless: bool
+            A flag indicating whether to start a subprocess to display the environment's state or not.
 
         """
 
         # Manage the display if necessary
-        self._disp = out
-        if out:
+        self._disp = not headless
+        if not headless:
             self._disp_q = Queue()
             self._disp_end_evt = Event()
             self._disp_proc = Process(target=display, args=(self._disp_q, self._disp_end_evt, size), kwargs={'fps': int(1 / dt)})
