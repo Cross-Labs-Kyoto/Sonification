@@ -41,7 +41,7 @@ class RLMemory(Dataset):
             self._obs = torch.vstack([self._obs, obs])
             self._dones = torch.vstack([self._dones, done])
 
-    def add_act(self, act, lprobs):
+    def add_act_and_val(self, act, lprobs, val):
         # Flatten everything and transform into tensors
         if isinstance(act, np.ndarray):
             acts = torch.from_numpy(act).flatten()
@@ -53,28 +53,29 @@ class RLMemory(Dataset):
         else:
             lprobs = torch.tensor(lprobs).flatten()
 
+        val = torch.tensor(val)  # Might already be a list since the critic returns a batch of 1 element
+
         if self._acts is None:
             # Direct assignment
             self._acts = acts
             self._log_probs = lprobs
+            self._values = val
         else:
             # Stack at the bottom
             self._acts = torch.vstack([self._acts, acts])
             self._log_probs = torch.vstack([self._log_probs, lprobs])
+            self._values = torch.vstack([self._values, val])
 
-    def add_val(self, val, rew):
-        # Transform everything into tensors
+    def add_rew(self, val, rew):
+        # Transform reward into tensor
         rew = torch.tensor([rew])
-        val = torch.tensor([val])
 
         if self._rewards is None:
             # Direct assignment
             self._rewards = rew
-            self._values = val
         else:
             # Stack at the bottom
             self._rewards = torch.vstack([self._rewards, rew])
-            self._values = torch.vstack([self._values, val])
 
     def __len__(self):
         # Assume that all subsets are of the same length
