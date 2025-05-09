@@ -338,10 +338,12 @@ class PushEnv(object):
             logger.debug('Waiting for the display process to exit.')
             self._disp_proc.join()
 
+    @property
     def act_space(self):
         # Action is made of amplitudes along the X and Y axis for the agents' accelerations
         return np.array(Action()).flatten().shape[0]
 
+    @property
     def obs_space(self):
         # Observations is made of:
         #   The agents' positions, and velocities (8 values)
