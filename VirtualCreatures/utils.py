@@ -24,16 +24,28 @@ class RLMemory(Dataset):
         self._dones = None
         self._values = None
 
-
-    def add(self, obs, acts, lprobs, rew, done, val):
+    def add_obs(self, obs, done):
         # Flatten everything and transform into tensors
         if isinstance(obs, np.ndarray):
             obs = torch.from_numpy(obs).flatten()
         else:
             obs = torch.tensor(obs).flatten()
+        done = torch.tensor([done])
 
-        if isinstance(acts, np.ndarray):
-            acts = torch.from_numpy(acts).flatten()
+        if self._obs is None:
+            # Direct assignment
+            self._obs = obs
+            self._dones = done
+        else:
+            # Stack at the bottom
+            self._obs = torch.vstack([self._obs, obs])
+            self._dones = torch.vstack([self._dones, done])
+
+
+    def add_act(self, act, lprobs):
+        # Flatten everything and transform into tensors
+        if isinstance(act, np.ndarray):
+            acts = torch.from_numpy(act).flatten()
         else:
             acts = torch.tensor(acts).flatten()
 
@@ -42,27 +54,27 @@ class RLMemory(Dataset):
         else:
             lprobs = torch.tensor(lprobs).flatten()
 
-        # This assumes that reward, done, and value are floats/bools instead of lists or numpy arrays
-        rew = torch.tensor([rew])
-        done = torch.tensor([done])
-        val = torch.tensor([val])
-
-        # Store everything in their respective sub-sets
-        if self._obs is None:
+        if self._acts is None:
             # Direct assignment
-            self._obs = obs
             self._acts = acts
             self._log_probs = lprobs
+        else:
+            # Stack at the bottom
+            self._acts = torch.vstack([self._acts, acts])
+            self._log_probs = torch.vstack([self._log_probs, lprobs])
+
+    def add_val(self, val, rew):
+        # Transform everything into tensors
+        rew = torch.tensor([rew])
+        val = torch.tensor([val])
+
+        if self._rewards is None:
+            # Direct assignment
             self._rewards = rew
-            self._dones = done
             self._values = val
         else:
             # Stack at the bottom
-            self._obs = torch.vstack([self._obs, obs])
-            self._acts = torch.vstack([self._acts, acts])
-            self._log_probs = torch.vstack([self._log_probs, lprobs])
             self._rewards = torch.vstack([self._rewards, rew])
-            self._dones = torch.vstack([self._dones, done])
             self._values = torch.vstack([self._values, val])
 
     def __len__(self):
