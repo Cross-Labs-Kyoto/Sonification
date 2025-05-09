@@ -89,7 +89,8 @@ def display(q, end_evt, size, fps=30):
 
 
 Action = namedtuple('Action', ['acc_agt_1', 'acc_agt_2'], defaults=[(0, 0), (0, 0)])
-Observation = namedtuple('Observation', ['pos_agt_1', 'vel_agt_1', 'pos_agt_2', 'vel_agt_2', 'pos_push', 'vel_push', 'pos_goal'], defaults=[])
+Observation = namedtuple('Observation', ['pos_agt_1', 'vel_agt_1', 'pos_agt_2', 'vel_agt_2', 'pos_push', 'vel_push', 'pos_goal'],
+                         defaults=[(0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0)])
 
 
 class PushEnv(object):
