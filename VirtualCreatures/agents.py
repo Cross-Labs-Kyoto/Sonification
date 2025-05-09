@@ -36,25 +36,25 @@ class ContinuousRPOAgt(nn.Module):
         # Set required parameters
         self.rpo_alpha = rpo_alpha
         if device == 'auto':
-            self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+            self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         else:
-            self.device = torch.device(device)
+            self._device = torch.device(device)
 
         # Define Actor and Critic topologies
         self._critic = nn.Sequential(
-            nn.Linear(in_size, 64, device=self.device),
+            nn.Linear(in_size, 64, device=self._device),
             nn.Tanh(),
-            nn.Linear(64, 64, device=self.device),
+            nn.Linear(64, 64, device=self._device),
             nn.Tanh(),
-            nn.Linear(64, 1, device=self.device),
+            nn.Linear(64, 1, device=self._device),
         )
 
         self._actor_mean = nn.Sequential(
-            nn.Linear(in_size, 64, device=self.device),
+            nn.Linear(in_size, 64, device=self._device),
             nn.Tanh(),
-            nn.Linear(64, 64, device=self.device),
+            nn.Linear(64, 64, device=self._device),
             nn.Tanh(),
-            nn.Linear(64, out_size, device=self.device),
+            nn.Linear(64, out_size, device=self._device),
             nn.Tanh(),
         )
 
@@ -70,6 +70,7 @@ class ContinuousRPOAgt(nn.Module):
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
         if action is None:
+            # This means that actions are not in the range [-1, 1]
             action = probs.sample()
         else:
             # sample again to add stochasticity to the policy
