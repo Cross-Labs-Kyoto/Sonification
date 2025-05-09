@@ -73,7 +73,9 @@ try:
                 actions.append(action.cpu().tolist())
 
             # Move a step froward
-            next_obs, reward, next_done = env.step(Action(*actions))
+            # Note that the actions are reversed, since ind_1 is setting the acceleration for ind_2,
+            # and vice versa.
+            next_obs, reward, next_done = env.step(Action(actions[1], actions[0]))
 
             # Add the reward to memory twice (once for each individual)
             for _ in range(2):
