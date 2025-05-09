@@ -192,14 +192,6 @@ class PushEnv(object):
         self._pushable.mass = 1
         self._pushable.filter = grp_0
 
-        # Create the goal in a random position
-        self._goal = pk.Circle(pk.Body(body_type=pk.Body.STATIC), radius=self.size * 0.15)
-        self._goal.filter = grp_1
-        if self.goal_pos is not None:
-            self._goal.body.position = self.goal_pos
-        else:
-            self._goal.body.position = (np.random.random((2, )) * self.size).tolist()
-
         # Randomly set the position and velocity of agents and pushable
         for agt in self._agts:
             agt.body.position = (np.random.random((2,)) * self.size).tolist()
@@ -211,6 +203,24 @@ class PushEnv(object):
         else:
             self._pushable.body.position = self.push_pos
         self._pushable.body.velocity = (np.random.random((2,)) * 100).tolist()
+
+        # Create the goal in a random position
+        self._goal = pk.Circle(pk.Body(body_type=pk.Body.STATIC), radius=self.size * 0.15)
+        self._goal.filter = grp_1
+        if self.goal_pos is not None:
+            self._goal.body.position = self.goal_pos
+        else:
+            # The overflow corresponds to how much of the pushable will be beyond the goal's center when reaching the threshold
+            overflow = self._pushable.radius - ((self._pushable.radius + self._goal.radius) * self._final_thres)
+            # This weird formula will make sure that the position is within the goal's reachability zone
+            pos = np.random.random((2, )) * (self.size - 2 * overflow - 1) + overflow + 1
+            self._goal.body.position = pos.tolist()
+
+            # Make sure we don't initialize the environment in a final state
+            while self.get_goal_push_intersect() <= self._final_thres:
+                overflow = self._pushable.radius - ((self._pushable.radius + self._goal.radius) * self._final_thres)
+                pos = np.random.random((2, )) * (self.size - 2 * overflow - 1) + overflow + 1
+                self._goal.body.position = pos.tolist()
 
         # Add everything to the simulation space
         for el in chain(self._agts, self._walls, [self._pushable]):
