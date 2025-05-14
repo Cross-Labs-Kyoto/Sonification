@@ -178,7 +178,7 @@ class PushEnv(object):
 
         # Create two agents
         self._agts = []
-        for idx in range(2):
+        for _ in range(2):
             shape = pk.Circle(pk.Body(), radius=self.size * 0.05)
             shape.friction = 0
             shape.elasticity = 0
@@ -311,22 +311,22 @@ class PushEnv(object):
 
         Returns
         -------
-        bool
-            True if the task has reached a final state. False otherwise.
+        int
+            1 if the task has reached a final state. 0 otherwise.
 
         """
 
         # If the environment has not been initialized the goal cannot be reached
         if not self._initialized:
-            return False
+            return 0
 
         # Return true if distance between centers is bellow a certain fraction of both radii
         if self.get_goal_push_intersect() <= self._final_thres:
             # Reset the init flag, so environment does not get modified after final state
             self._initialized = False
-            return True
+            return 1
         else:
-            return False
+            return 0
 
     def observe(self):
         """Observes the current environment's state.
