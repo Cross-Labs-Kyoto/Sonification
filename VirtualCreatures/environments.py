@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Disable PyGame's banner
+from os import environ
+environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+
 from itertools import chain
 from collections import namedtuple
 from multiprocessing import Process, Queue, Event
