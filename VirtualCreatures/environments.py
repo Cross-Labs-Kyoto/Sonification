@@ -77,6 +77,7 @@ def display(q, end_evt, size, fps=30):
     except KeyboardInterrupt:
         pass
     finally:
+        logger.debug('Closing the display')
         if not end_evt.is_set():
             # Let everyone know something went wrong
             end_evt.set()
@@ -84,13 +85,10 @@ def display(q, end_evt, size, fps=30):
         # Gracefully close pygame and all its module
         pg.quit()
 
-        # Empty the queue
-        while not q.empty():
-            try:
-                q.get(block=False)
-            except Empty:
-                break
-
+        logger.debug('Closing the queue')
+        # Close the queue if possible
+        if hasattr(q, 'close'):
+            q.close()
 
 Action = namedtuple('Action', ['acc_agt_1', 'acc_agt_2'], defaults=[(0, 0), (0, 0)])
 Observation = namedtuple('Observation', ['pos_agt_1', 'vel_agt_1', 'pos_agt_2', 'vel_agt_2', 'pos_push', 'vel_push', 'pos_goal'],
@@ -366,12 +364,20 @@ class PushEnv(object):
         """Terminates the display process if necessary."""
 
         if self._disp:
-            logger.debug('Waiting for the display to consume the queue.')
-            while not self._disp_q.empty():
-                sleep(self._dt)
+            if not self._disp_end_evt.is_set():
+                logger.debug('Asking the display process to end.')
+                self._disp_end_evt.set()
 
-            logger.debug('Asking the display process to end.')
-            self._disp_end_evt.set()
+            logger.debug('Emptying the display queue.')
+            while not self._disp_q.empty() and self._disp_q.qsize() != 0:
+                try:
+                    self._disp_q.get(block=False)
+                except Empty:
+                    pass
+
+            logger.debug('Closing the queue')
+            if hasattr(self._disp_q, 'close'):
+                self._disp_q.close()
 
             logger.debug('Waiting for the display process to exit.')
             self._disp_proc.join()
