@@ -394,3 +394,10 @@ class PushEnv(object):
         #   The pushable's position and velocity (4 values)
         #   The goal's position (2 values) <- This is included to allow the network to compute relative positions/distances
         return np.array(Observation()).flatten().shape[0]
+
+    @property
+    def nb_agts(self):
+        if hasattr(self, '_agts'):
+            return len(self._agts)
+        else:
+            return None
