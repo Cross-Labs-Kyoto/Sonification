@@ -17,72 +17,81 @@ class RLMemory(Dataset):
         super().__init__()
 
         # Keep track of the state, actions, probabilities associated with each action, rewards, computed values, and flags indicating the end of a task
-        self._obs = None
-        self._acts = None
-        self._log_probs = None
-        self._rewards = None
-        self._dones = None
-        self._values = None
+        self.obs = None
+        self.acts = None
+        self.log_probs = None
+        self.rewards = None
+        self.dones = None
+        self.values = None
+        self.advantages = None
+        self.returns = None
 
     def add_obs(self, obs, done):
         # Flatten everything and transform into tensors
-        if isinstance(obs, np.ndarray):
-            obs = torch.from_numpy(obs).flatten()
-        else:
-            obs = torch.tensor(obs).flatten()
+        if not isinstance(obs, torch.Tensor):
+            if isinstance(obs, np.ndarray):
+                obs = torch.from_numpy(obs).flatten()
+            else:
+                obs = torch.tensor(obs).flatten()
+
         done = torch.tensor([done])
 
-        if self._obs is None:
+        if self.obs is None:
             # Direct assignment
-            self._obs = obs
-            self._dones = done
+            self.obs = obs
+            self.dones = done
         else:
             # Stack at the bottom
-            self._obs = torch.vstack([self._obs, obs])
-            self._dones = torch.vstack([self._dones, done])
+            self.obs = torch.vstack([self.obs, obs])
+            self.dones = torch.vstack([self.dones, done])
 
     def add_act_and_val(self, act, lprobs, val):
         # Flatten everything and transform into tensors
-        if isinstance(act, np.ndarray):
-            acts = torch.from_numpy(act).flatten()
+        if not isinstance(act, torch.Tensor):
+            if isinstance(act, np.ndarray):
+                act = torch.from_numpy(act).flatten()
+            else:
+                act = torch.tensor(act).flatten()
+
+        if not isinstance(lprobs, torch.Tensor):
+            if isinstance(lprobs, np.ndarray):
+                lprobs = torch.from_numpy(lprobs).flatten()
+            else:
+                lprobs = torch.tensor(lprobs).flatten()
+
+        if not isinstance(val, torch.Tensor):
+            val = torch.tensor(val)  # Might already be a list since the critic returns a batch of 1 element
         else:
-            acts = torch.tensor(acts).flatten()
+            val = val.flatten()
 
-        if isinstance(lprobs, np.ndarray):
-            lprobs = torch.from_numpy(lprobs).flatten()
-        else:
-            lprobs = torch.tensor(lprobs).flatten()
-
-        val = torch.tensor(val)  # Might already be a list since the critic returns a batch of 1 element
-
-        if self._acts is None:
+        if self.acts is None:
             # Direct assignment
-            self._acts = acts
-            self._log_probs = lprobs
-            self._values = val
+            self.acts = act
+            self.log_probs = lprobs
+            self.values = val
         else:
             # Stack at the bottom
-            self._acts = torch.vstack([self._acts, acts])
-            self._log_probs = torch.vstack([self._log_probs, lprobs])
-            self._values = torch.vstack([self._values, val])
+            self.acts = torch.vstack([self.acts, act])
+            self.log_probs = torch.vstack([self.log_probs, lprobs])
+            self.values = torch.vstack([self.values, val])
 
-    def add_rew(self, val, rew):
+    def add_rew(self, rew):
         # Transform reward into tensor
         rew = torch.tensor([rew])
 
-        if self._rewards is None:
+        if self.rewards is None:
             # Direct assignment
-            self._rewards = rew
+            self.rewards = rew
         else:
             # Stack at the bottom
-            self._rewards = torch.vstack([self._rewards, rew])
+            self.rewards = torch.vstack([self.rewards, rew])
 
     def __len__(self):
-        # Assume that all subsets are of the same length
-        return len(self._obs)
+        # Assumes that all subsets are of the same length
+        return len(self.obs)
 
     def __getitem__(self, idx):
-        return self._obs[idx], self._acts[idx], self._log_probs[idx], self._rewards[idx], self._dones[idx], self._values[idx]
+        return self.obs[idx], self.acts[idx], self.log_probs[idx], self.rewards[idx], self.dones[idx], self.values[idx], self.advantages[idx], self.returns[idx]
 
 
 class Memory(Dataset):
