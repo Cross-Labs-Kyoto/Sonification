@@ -59,21 +59,21 @@ class ContinuousRPOAgt(nn.Module):
         )
 
         # TODO: Why implement the action std as simple learnable parameters, instead of having a two headed Actor?
-        self._actor_std = nn.Parameter(torch.zeros(1, out_size)).to(self._device)
+        self._actor_logstd = nn.Parameter(torch.zeros(1, out_size)).to(self._device)
+
+    @property
+    def device(self):
+        return self._device
 
     def get_value(self, x):
-        # Make sure the input is on the same device as the agent
         x = x.to(self._device)
-
         # And return the estimated value
         return self._critic(x)
 
     def get_action_and_value(self, x, action=None):
-        # Make sure the input is on the same device as the agent
         x = x.to(self._device)
-
-        action_mean = self.actor_mean(x)
-        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_mean = self._actor_mean(x)
+        action_logstd = self._actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
         if action is None:
@@ -85,4 +85,4 @@ class ContinuousRPOAgt(nn.Module):
             action_mean = action_mean + z
             probs = Normal(action_mean, action_std)
 
-        return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(x)
+        return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self._critic(x)
