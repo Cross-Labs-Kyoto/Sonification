@@ -7,7 +7,6 @@ from itertools import chain
 from collections import namedtuple
 from multiprocessing import Process, Queue, Event
 from queue import Empty
-from time import sleep
 
 import numpy as np
 import pymunk as pk
@@ -287,7 +286,7 @@ class PushEnv(object):
         # Store the pushable position for later processing
         self._old_push_pos = np.copy(self._pushable.body.position)
 
-        return reward
+        return reward - 0.1  # 0.1 penalty as energy depletion
 
     def _display_env(self):
         """Sends environment state to display process."""
