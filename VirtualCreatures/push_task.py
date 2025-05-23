@@ -15,6 +15,8 @@ from loguru import logger
 
 # Declare environment configuration
 # TODO: This should become CLI parameters
+# TODO: Detect when env is not moving for N steps and restart episode
+DETERMINISTIC = False
 HEADLESS = False
 DT = 1 / 30
 SIZE = 800
@@ -38,11 +40,12 @@ batch_size = NUM_STEPS
 minibatch_size = batch_size // NUM_MINI_BATCHES
 num_updates = TOT_TIMESTEPS // batch_size
 
-# Make the environment as repeatable as possible
-random.seed(RND_SEED)
-np.random.seed(RND_SEED)
-torch.manual_seed(RND_SEED)
-torch.backends.cudnn.deterministic = True
+if DETERMINISTIC:
+    # Make the environment as repeatable as possible
+    random.seed(RND_SEED)
+    np.random.seed(RND_SEED)
+    torch.manual_seed(RND_SEED)
+    torch.backends.cudnn.deterministic = True
 
 # Instantiate a push environment
 env = PushEnv(SIZE, DT, headless=HEADLESS)
