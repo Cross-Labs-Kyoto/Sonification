@@ -3,6 +3,7 @@ from math import pow
 from collections import deque
 import hashlib
 import numpy as np
+from scipy.spatial.distance import cdist
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
@@ -12,12 +13,19 @@ from tqdm import tqdm
 from loguru import logger
 
 
-def get_video_meta(vc):
-    width, height = int(vc.get(cv.CAP_PROP_FRAME_WIDTH)), int(vc.get(cv.CAP_PROP_FRAME_HEIGHT))
-    fps = int(vc.get(cv.CAP_PROP_FPS))
-    tot_frames = int(vc.get(cv.CAP_PROP_FRAME_COUNT))
-
-    return width, height, fps, tot_frames
+COLORS = [
+    (40, 42, 54),
+    (248, 248, 242),
+    (139, 233, 253),
+    (80, 250, 123),
+    (255, 184, 108),
+    (255, 121, 198),
+    (68, 71, 90),
+    (189, 147, 249),
+    (255, 85, 85),
+    (241, 250, 140),
+    (98, 114, 164)
+]
 
 
 def get_contours(frame, thres):
@@ -32,19 +40,6 @@ def get_contours(frame, thres):
 
     # Return the contours and associated hierarchy
     return cv.findContours(canny, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-
-
-def get_bbox(contour, padding=0):
-    # Approximate a closed polygonal curve for the given contour
-    poly = cv.approxPolyDP(contour, epsilon=3, closed=True)  # Epsilon is the precision
-    # Return the minimal bounding box
-    bbox = cv.boundingRect(poly)
-    if padding == 0:
-        return bbox
-    else:
-        # Pad the bounding box making sure not to go over the edges
-        pad = padding // 2
-        return (max(0, bbox[0] - pad), max(0, bbox[1] - pad), bbox[2] + pad, bbox[3] + pad)
 
 
 def get_rotated_bbox(contour):
@@ -71,6 +66,7 @@ def get_tl_br(rect):
 
 
 def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
+    # TODO: Use VideoIterator instead of OpenCV's VideoCapture
     # Extract information about the video stream
     vid_w, vid_h, fps, tot_frames = get_video_meta(video_capture)
 
@@ -166,7 +162,7 @@ def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
 class MvTracker(object):
     """Defines an edge detection-based tracker for moving objects."""
 
-    def __init__(self, width, height, max_dist, offset_x=0, offset_y=0, canny_thres=40, nms_thres=0.3, debug=False):
+    def __init__(self, width, height, canny_thres=40, nms_thres=0.3, debug=False):
         """Initializes attributes required for tracking objects.
 
         Parameters
@@ -176,15 +172,6 @@ class MvTracker(object):
 
         height: int
             The height of a frame in pixels.
-
-        max_dist: int
-            If detected object is further than `max_dist` from the frame center, it will be ignored.
-
-        offset_x: int
-            The amount of pixels by which to offset the frame center along the X axis.
-
-        offset_y: int
-            The amount of pixels by which to offset the frame center along the Y axis.
 
         canny_thres: int
             The threshold for the hysteresis procedure part of the Canny edge detector.
@@ -200,23 +187,16 @@ class MvTracker(object):
 
         self._canny_thres = canny_thres
         self._nms_thres = nms_thres
-
-        self.abs_pos: dict[int, deque] = {}
-        self.abs_vels: dict[int, deque] = {}
-
-        self.icrs: dict[int, np.ndarray] = {}
-        self.rel_pos: dict[int, tuple] = {}
+        self.tracks = {}
 
         # TODO: Adapt distance_threshold, if too many dropped objects
-        self._tracker = Tracker(distance_function='euclidean', distance_threshold=50, hit_counter_max=5, filter_factory=OptimizedKalmanFilterFactory(R=0.1, Q=4))
-
-        self.frame_center = np.array((offset_x + width // 2, offset_y + height // 2))
-        self._max_dist = max_dist
+        self._tracker = Tracker(distance_function='euclidean', distance_threshold=50,
+                                hit_counter_max=5,
+                                filter_factory=OptimizedKalmanFilterFactory(R=0.1, Q=4),
+                                reid_distance_function=lambda x, y: cdist(x.estimate, y.estimate, metric='euclidean'),
+                                reid_distance_threshold=50)
 
         self._dbg = debug
-        # Create a named window to display the tracking results
-        if debug:
-            cv.namedWindow('Debug', cv.WINDOW_NORMAL | cv.WINDOW_KEEPRATIO | cv.WINDOW_GUI_NORMAL)
 
     def track(self, frame):
         """Builds trajectories for detected objects.
@@ -228,31 +208,26 @@ class MvTracker(object):
 
         """
 
-
         # Find contours
         contours, hierarchy = get_contours(frame, self._canny_thres)
-
-        # Draw contours if necessary
-        if self._dbg:
-            frame = cv.drawContours(frame, contours, -1, (0, 255, 0))
 
         # Get the rotated rectangles and associated bounding boxes
         bboxes = []
         scores = []
+        cntrs = []  # This is necessary to discard small bodies and edge of the petri dish
         for i, c in enumerate(contours):
             # Find minimum enveloping rotated rectangle
             r_rect = get_rotated_bbox(c)
 
-            # Compute distance to center of frame
-            dist = np.linalg.norm(self.frame_center - r_rect.center)
-
             # Avoid detecting the edges of the petri dish or small foreign bodies
-            if dist > self._max_dist or np.any(np.array(r_rect.size) < 5):
+            if np.any(np.array(r_rect.size) < 10) or np.any(np.array(r_rect.size) > 75):
                 continue
 
             # Store all information related to the rotated rectangle for later filtering
             bboxes.append(r_rect.boundingRect())  # In opencv a rectangle is represented by (x, y, w, h)
             scores.append(r_rect.size[0] * r_rect.size[1])
+            cntrs.append(c)
+
 
         if len(bboxes) != 0:
             # Turn scores and bboxes into numpy arrays for ease of manipulation
@@ -267,6 +242,8 @@ class MvTracker(object):
 
             # Keep only non-overlapping bboxes
             bboxes = bboxes[indices]
+            # And corresponding contours
+            contours = [cntrs[idx] for idx in indices]
 
             # Find the center of every bboxes
             centers = bboxes[:, :2] + bboxes[:, 2:] / 2
@@ -275,45 +252,47 @@ class MvTracker(object):
             centers = np.expand_dims(centers, axis=1)
 
             # Declare the relevant detections
-            detections = [Detection(center) for center in centers]
+            detections = [Detection(center, data=idx) for idx, center in enumerate(centers)]
 
             # Update tracker
             tracked_objs = self._tracker.update(detections)
-            for obj in tracked_objs:
-                # Store the absolute velocity
-                if obj.id not in self.abs_vels:
-                    self.abs_vels[obj.id] = deque(maxlen=2)
-                self.abs_vels[obj.id].append(obj.estimate_velocity.squeeze(axis=0))
 
-                # Store the absolute position
-                if obj.id not in self.abs_pos:
-                    self.abs_pos[obj.id] = deque(maxlen=3)
-                self.abs_pos[obj.id].append(obj.estimate.squeeze(axis=0))
+            # Update tracks
+            for obj in tracked_objs:
+                # Ignore object that are initializing or stale
+                if obj.id is None and not obj.live_points[0]:
+                    continue
+
+                # Get the corresponding bounding box and contour
+                label = obj.last_detection.data
+                try:
+                    bbox = bboxes[label]
+                    cntr = contours[label]
+                except IndexError:
+                    # The object is still considered alive, but no bounding box is associated with it
+                    continue
+
+                # Get absolute position and velocity
+                abs_pos = obj.estimate.squeeze(axis=0)
+                abs_vel = obj.estimate_velocity.squeeze(axis=0)
+
+                # Extract the portion of the frame containing the object
+                x1, y1, w, h = bbox
+                img = frame[y1:y1+h, x1:x1+w]
+
+                # Declare a new track or update sequences based on estimated information
+                if obj.id not in self.tracks:
+                    self.tracks[obj.id] = Track(obj.id, abs_pos, abs_vel, cntr, bbox, img)
+                else:
+                    self.tracks[obj.id].update(abs_pos, abs_vel, cntr, bbox, img)
 
                 # If in debug mode display absolute position
                 if self._dbg:
                     x, y = obj.estimate.squeeze(axis=0).astype(int)
-                    frame = cv.circle(frame, (x, y), 3, (0, 0, 255), -1)
-
-                # Get the ICR if possible
-                icr = self.get_icr(obj.id)
-                if icr is not None:
-                    self.icrs[obj.id] = icr
-
-                    # Compute the rotational speed around the icr
-                    old_pos, curr_pos = list(self.abs_pos[obj.id])[1:]
-                    old_rel_pos = cart_to_polar(*(old_pos - icr))
-                    curr_rel_pos = cart_to_polar(*(curr_pos - icr))
-                    self.rel_pos[obj.id] = (old_rel_pos, curr_rel_pos)
-
-            # If in debug mode, display frame with all information
-            if self._dbg:
-                # Draw exclusion zone
-                frame = cv.circle(frame, self.frame_center.astype(int), int(self._max_dist), (255, 0, 0))
-
-                # Blit
-                cv.imshow('Debug', frame)
-                cv.pollKey()
+                    color = COLORS[obj.id % len(COLORS)]
+                    frame = cv.circle(frame, (x, y), 3, color, -1)
+                    frame = cv.rectangle(frame, (x1, y1), (x1+w, y1+w), color)
+                    frame = cv.drawContours(frame, np.expand_dims(cntr, axis=0), -1, color)
 
     def get_icr(self, obj_id):
         """Computes the Instantaneous Center of Rotation based on the object's location in three consecutive frames."""
@@ -348,13 +327,69 @@ class MvTracker(object):
         y = (m1 * b2 - m2 * b1) / (m1 - m2)
         return np.array((x, y), dtype=int)
 
-    @property
-    def tracked_objects(self):
-        """Return the list of actively [TrackedObjects](https://tryolabs.github.io/norfair/2.2/reference/tracker/#norfair.tracker.TrackedObject)."""
-        objs = self._tracker.get_active_objects()
-        if objs is None:
-            return []
-        return objs
+
+class Track(object):
+    """A container for information related to tracked objects across time."""
+
+    def __init__(self, obj_id, pos, vel, contour, bbox, img):
+        """
+        Parameters
+        ----------
+        obj_id: int
+            The corresponding object's identifier. This is set by the tracker.
+
+        pos: tuple[int]
+            The absolute position of the object at the time of creating the track.
+
+        vel: tuple[int]
+            The absolute velocity of the object at the time of creating the track.
+
+        contour: np.array
+            The detected contour corresponding to the object at the time of creating the track.
+
+        bbox: np.array
+            The detected contour corresponding to the object at the time of creating the track.
+
+        img: np.array
+            The portion of the frame containing the object at the time of creating the track.
+
+        """
+
+        # Simply initialize all information sequences
+        self.id = obj_id
+        self.positions = [pos]
+        self.velocities = [vel]
+        self.contours = [contour]
+        self.bboxes = [bbox]
+        self.images = [img]
+
+    def update(self, pos, vel, contour, bbox, img):
+        """Stores the given information corresponding to the current time step, in the appropriate sequence.
+
+        Parameters
+        ----------
+        pos: tuple[int]
+            The absolute position of the object at the time of creating the track.
+
+        vel: tuple[int]
+            The absolute velocity of the object at the time of creating the track.
+
+        contour: np.array
+            The detected contour corresponding to the object at the time of creating the track.
+
+        bbox: np.array
+            The detected contour corresponding to the object at the time of creating the track.
+
+        img: np.array
+            The portion of the frame containing the object at the time of creating the track.
+        """
+
+        # Do what it says on the tin
+        self.positions.append(pos)
+        self.velocities.append(vel)
+        self.contours.append(contour)
+        self.bboxes.append(bbox)
+        self.images.append(img)
 
 
 class VideoIterator(cv.VideoCapture):
@@ -379,6 +414,15 @@ class VideoIterator(cv.VideoCapture):
         if not ret:
             raise StopIteration
         return frame
+
+    def get_metadata(self):
+        """Returns information related to the video file or stream itself, such as width, height, or frame rate."""
+
+        width, height = int(self.get(cv.CAP_PROP_FRAME_WIDTH)), int(self.get(cv.CAP_PROP_FRAME_HEIGHT))
+        fps = int(self.get(cv.CAP_PROP_FPS))
+        tot_frames = int(self.get(cv.CAP_PROP_FRAME_COUNT))
+
+        return width, height, fps, tot_frames
 
 
 class Memory(Dataset):
