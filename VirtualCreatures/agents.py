@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from pathlib import Path
 import torch
 from torch import nn
 from torch.distributions.normal import Normal
@@ -86,3 +87,38 @@ class ContinuousRPOAgt(nn.Module):
             probs = Normal(action_mean, action_std)
 
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self._critic(x)
+
+
+    def save(self, fpath):
+        """Saves the model's parameters to the given `fpath`.
+
+        Parameters
+        ----------
+        fpath: pathlib.Path, str
+            The relative path to the file in which to save the parameters.
+
+        """
+
+        if isinstance(fpath, str):
+            fpath = Path(fpath).expanduser().resolve()
+
+        torch.save(self.state_dict(), fpath)
+
+    def load(self, fpath):
+        """Loads the model's parameters from the given `fpath`.
+
+        Parameters
+        ----------
+        fpath: pathlib.Path, str
+            The relative path to the file from which to load the parameters.
+
+        """
+
+        if isinstance(fpath, str):
+            fpath = Path(fpath).expanduser().resolve()
+
+        if not fpath.is_file():
+            raise RuntimeError(f'The provided path either does not exist or is not a file: {fpath}')
+
+        self.load_state_dict(torch.load('model_weights.pth', weights_only=True))
+        self.eval()
