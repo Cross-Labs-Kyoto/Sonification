@@ -11,6 +11,10 @@ from utils import RLMemory
 
 from loguru import logger
 
+####################################################################################
+### Keep in mind that this is only a test script.                                ###
+### Everything will have to be moved to the `tasks.py` module once it all works. ###
+####################################################################################
 
 
 # Declare environment configuration
@@ -54,6 +58,7 @@ try:
     # Instantiate the agent and its optimizer
     agt = ContinuousRPOAgt(env.obs_space, env.act_space // 2)  # Action space given to the environment is for two agents, but the Actor network should only return the action of one
     # TODO: If required load the agent
+    #agt.load('test.pt')
     optimizer = torch.optim.Adam(agt.parameters(), lr=L_RATE, eps=1e-5)
 
     # Initialize the environment
@@ -178,6 +183,8 @@ try:
             if approx_kl < KL_TARG:
                 break
 
+        # Save the agent
+        agt.save('test.pt')
 except KeyboardInterrupt:
     pass
 finally:
