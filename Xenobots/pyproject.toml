@@ -20,10 +20,3 @@ dependencies = [
     "torch (>=2.6.0,<3.0.0)",
     "pedalboard (>=0.9.16,<0.10.0)",
 ]
-
-[tool.poetry]
-package-mode = false
-
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
