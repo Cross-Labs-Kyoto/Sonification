@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 from math import pow
-from collections import deque
 import hashlib
 import numpy as np
-from scipy.spatial.distance import cdist
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
@@ -11,21 +9,6 @@ import cv2 as cv
 from norfair import Detection, Tracker, OptimizedKalmanFilterFactory
 from tqdm import tqdm
 from loguru import logger
-
-
-COLORS = [
-    (40, 42, 54),
-    (248, 248, 242),
-    (139, 233, 253),
-    (80, 250, 123),
-    (255, 184, 108),
-    (255, 121, 198),
-    (68, 71, 90),
-    (189, 147, 249),
-    (255, 85, 85),
-    (241, 250, 140),
-    (98, 114, 164)
-]
 
 
 def get_contours(frame, thres):
@@ -190,11 +173,11 @@ class MvTracker(object):
         self.tracks = {}
 
         # TODO: Adapt distance_threshold, if too many dropped objects
-        self._tracker = Tracker(distance_function='euclidean', distance_threshold=50,
+        self._tracker = Tracker(distance_function='euclidean', distance_threshold=40,
                                 hit_counter_max=5,
-                                filter_factory=OptimizedKalmanFilterFactory(R=0.1, Q=4),
-                                reid_distance_function=lambda x, y: cdist(x.estimate, y.estimate, metric='euclidean'),
-                                reid_distance_threshold=50)
+                                filter_factory=OptimizedKalmanFilterFactory(R=0.1, Q=4))
+                                #reid_distance_function=lambda x, y: cdist(x.estimate, y.estimate, metric='euclidean'),
+                                #reid_distance_threshold=50)
 
         self._dbg = debug
 
