@@ -16,7 +16,6 @@ from loguru import logger
 ### Everything will have to be moved to the `tasks.py` module once it all works. ###
 ####################################################################################
 
-
 # Declare environment configuration
 # TODO: This should become CLI parameters
 # TODO: Detect when env is not moving for N steps and restart episode
