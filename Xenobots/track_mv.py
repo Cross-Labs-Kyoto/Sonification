@@ -2,29 +2,20 @@
 from argparse import ArgumentParser
 from pathlib import Path
 from collections import deque
+import pickle
+
 import numpy as np
 import cv2 as cv
 from tqdm import tqdm
 
 from utils import MvTracker, VideoIterator
+from settings import COLORS
 
 
-COLORS = [
-    (40, 42, 54),
-    (248, 248, 242),
-    (139, 233, 253),
-    (80, 250, 123),
-    (255, 184, 108),
-    (255, 121, 198),
-    (68, 71, 90),
-    (189, 147, 249),
-    (255, 85, 85),
-    (241, 250, 140),
-    (98, 114, 164)
-]
 
 parser = ArgumentParser()
-parser.add_argument('-d', '--dir', type=Path, dest='dir', help="The relative path to the directory containing the videos to process.")
+parser.add_argument('-d', '--dir', type=Path, dest='dir', required=True,
+                    help="The relative path to the directory containing the videos to process.")
 
 if __name__ == "__main__":
     # Parse arguments
@@ -65,34 +56,47 @@ if __name__ == "__main__":
                     # Increase progress bar
                     prog.update()
 
+                # Save tracks for later use
                 prog = tqdm(desc='Tracks', total=len(tracker.tracks), position=0)
                 for trk in tracker.tracks.values():
                     # Increase progress bar
                     prog.update()
-
                     # Ignore anomalously short tracks
                     if len(trk.contours) < tot_frames / 2:
                         continue
 
+                    with itm.with_stem(f'{itm.stem}_{trk.id}').with_suffix('.pkl').open('wb') as f:
+                        pickle.dump(trk, f, protocol=-1)
+
+                # TODO: Make that into a separate process.
+                #prog = tqdm(desc='Tracks', total=len(tracker.tracks), position=0)
+                #for trk in tracker.tracks.values():
+                    # Increase progress bar
+                    #prog.update()
+
+                    # Ignore anomalously short tracks
+                    #if len(trk.contours) < tot_frames / 2:
+                    #    continue
+
                     # Initialize a video writer for the track
-                    vw = cv.VideoWriter(str(itm.with_stem(f'{itm.stem}_{trk.id}').with_suffix('.mp4')),
-                                        cv.VideoWriter_fourcc(*'mp4v'), fps, (vid_w, vid_h), True)  # True indicate that the video is in color
-                    try:
-                        # Get new frame
-                        frame = np.zeros((vid_h, vid_w, 3), dtype=np.float32)
-                        color = COLORS[trk.id % len(COLORS)]
-                        for cntr in trk.contours:
-                            # Draw contour
-                            frame = cv.drawContours(frame, np.expand_dims(cntr, axis=0), -1, color)
+                    #vw = cv.VideoWriter(str(itm.with_stem(f'{itm.stem}_{trk.id}').with_suffix('.mp4')),
+                    #                    cv.VideoWriter_fourcc(*'mp4v'), fps, (vid_w, vid_h), True)  # True indicate that the video is in color
+                    #try:
+                    #    # Get new frame
+                    #    frame = np.zeros((vid_h, vid_w, 3), dtype=np.float32)
+                    #    color = COLORS[trk.id % len(COLORS)]
+                    #    for cntr in trk.contours:
+                    #        # Draw contour
+                    #        frame = cv.drawContours(frame, np.expand_dims(cntr, axis=0), -1, color)
 
-                            # Write debug video
-                            vw.write(frame.astype(np.uint8))
+                    #        # Write debug video
+                    #        vw.write(frame.astype(np.uint8))
 
-                            # Decay frame to get a trail
-                            frame *= 0.8
+                    #        # Decay frame to get a trail
+                    #        frame *= 0.8
 
-                    except KeyboardInterrupt:
-                        pass
-                    finally:
-                        # Close video file
-                        vw.release()
+                    #except KeyboardInterrupt:
+                    #    pass
+                    #finally:
+                    #    # Close video file
+                    #    vw.release()
