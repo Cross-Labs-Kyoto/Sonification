@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from math import pow
 import hashlib
 import numpy as np
 import torch
@@ -49,9 +48,8 @@ def get_tl_br(rect):
 
 
 def mv_to_freqs_n_pans(video_capture, decay_rate=0.05):
-    # TODO: Use VideoIterator instead of OpenCV's VideoCapture
     # Extract information about the video stream
-    vid_w, vid_h, fps, tot_frames = get_video_meta(video_capture)
+    vid_w, vid_h, fps, tot_frames = video_capture.get_video_meta()
 
     # Instantiate an object tracker
     tracker = MvTracker(vid_w, vid_h, max_dist=560, offset_x=50)
@@ -179,8 +177,6 @@ class MvTracker(object):
                                 #reid_distance_function=lambda x, y: cdist(x.estimate, y.estimate, metric='euclidean'),
                                 #reid_distance_threshold=50)
 
-        self._dbg = debug
-
     def track(self, frame):
         """Builds trajectories for detected objects.
 
@@ -210,7 +206,6 @@ class MvTracker(object):
             bboxes.append(r_rect.boundingRect())  # In opencv a rectangle is represented by (x, y, w, h)
             scores.append(r_rect.size[0] * r_rect.size[1])
             cntrs.append(c)
-
 
         if len(bboxes) != 0:
             # Turn scores and bboxes into numpy arrays for ease of manipulation
@@ -268,47 +263,6 @@ class MvTracker(object):
                     self.tracks[obj.id] = Track(obj.id, abs_pos, abs_vel, cntr, bbox, img)
                 else:
                     self.tracks[obj.id].update(abs_pos, abs_vel, cntr, bbox, img)
-
-                # If in debug mode display absolute position
-                if self._dbg:
-                    x, y = obj.estimate.squeeze(axis=0).astype(int)
-                    color = COLORS[obj.id % len(COLORS)]
-                    frame = cv.circle(frame, (x, y), 3, color, -1)
-                    frame = cv.rectangle(frame, (x1, y1), (x1+w, y1+w), color)
-                    frame = cv.drawContours(frame, np.expand_dims(cntr, axis=0), -1, color)
-
-    def get_icr(self, obj_id):
-        """Computes the Instantaneous Center of Rotation based on the object's location in three consecutive frames."""
-
-        # If we have less than 3 points, there is nothing that can be done
-        trajects = self.abs_pos[obj_id]
-        if len(trajects) < 3:
-            return None
-
-        # Get the last three known positions
-        x1, y1 = trajects[-1]
-        x2, y2 = trajects[-2]
-        x3, y3 = trajects[-3]
-
-        # Avoid dividing by zero
-        if y1 == y2 or y2 == y3:
-            return None
-
-        # Get the perpendicular bisector for both pairs of points
-        m1 = (x1 - x2) / (y2 - y1)
-        b1 = (pow(y2, 2) - pow(y1, 2) + pow(x2, 2) - pow(x1, 2)) / (2 * (y2 - y1))
-
-        m2 = (x2 - x3) / (y3 - y2)
-        b2 = (pow(y3, 2) - pow(y2, 2) + pow(x3, 2) - pow(x2, 2)) / (2 * (y3 - y2))
-
-        # Avoid dividing by zero
-        if m1 == m2:
-            return None
-
-        # Compute the point of intersection of the two bisectors
-        x = (b2 - b1) / (m1 - m2)
-        y = (m1 * b2 - m2 * b1) / (m1 - m2)
-        return np.array((x, y), dtype=int)
 
 
 class Track(object):
