@@ -6,6 +6,7 @@ from collections import deque
 import numpy as np
 import cv2 as cv
 from tqdm import tqdm
+from mido import MidiFile, MetaMessage, Message, second2tick
 
 from utils import MvTracker, VideoIterator
 from settings import COLORS
@@ -52,13 +53,37 @@ def track_to_video(trk, f_path, vid_w, vid_h, fps, tot_frames):
         vw.release()
 
 
-def track_to_midi(trk, f_path, tot_frames):
+def track_to_midi(xen_trk, f_path, tot_frames, instrument=27):
     # Ignore anomalously short tracks
-    if len(trk.contours) < tot_frames / 2:
+    if len(xen_trk.contours) < tot_frames / 2:
         return 
 
-    # TODO: Transform the object tracklet into a midi track
-    pass
+    # Open a new MIDI file
+    midi_file = MidiFile(ticks_per_beat=480, type=0)  # Defaults are: ticks per beat: 480, tempo: 500000 micro sec/quarter note, time signature: 4/4 => one quarter per beat, type=0 means single track
+
+    # Get the number ticks between frames
+    d_t = second2tick(1/fps, ticks_per_beat=480, tempo=500000)
+
+    # Create and configure the track
+    mid_trk = midi_file.add_track(name=str(xen_trk.id))
+
+    # Set the tempo and time signature
+    mid_trk.append(MetaMessage('set_tempo', tempo=500000))
+    mid_trk.append(MetaMessage('time_signature', numerator=4, denominator=4))
+
+
+    # Set the instrument for the current object
+    mid_trk.append(Message('program_change', channel=0, program=instrument))  # Mono
+    # mid_trk.append(Message('program_change', channel=1, program=instrument))  # Stereo
+
+    # Translate the agent's acceleration into frequencies
+    prev_vel = np.zeros(2,)
+    for curr_vel in trk.velocities:
+        acc = curr_vel - prev_vel
+        print(acc)
+
+    # Save to midi file
+    midi_file.save(filename=f_path.with_stem(f'{f_path.stem}_{xen_trk.id}').with_suffix('.midi'))
 
 
 if __name__ == "__main__":
@@ -101,6 +126,9 @@ if __name__ == "__main__":
             for trk in tracks.values():
                 # Increase progress bar
                 prog.update()
-                # Translate tracks into videos
+
+                # Translate track into videos
                 track_to_video(trk, itm, vid_w, vid_h, fps, tot_frames)
 
+                # Translate xenobot track to midi track
+                track_to_midi(trk, itm, tot_frames)
