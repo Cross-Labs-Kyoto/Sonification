@@ -208,7 +208,7 @@ class MvTracker(object):
         self.rel_pos: dict[int, tuple] = {}
 
         # TODO: Adapt distance_threshold, if too many dropped objects
-        self._tracker = Tracker(distance_function='euclidean', distance_threshold=50, hit_counter_max=5, filter_factory=OptimizedKalmanFilterFactory(R=0.1, Q=4))
+        self._tracker = Tracker(distance_function='mean_euclidean', distance_threshold=50, hit_counter_max=5, filter_factory=OptimizedKalmanFilterFactory(R=0.1, Q=4))
 
         self.frame_center = np.array((offset_x + width // 2, offset_y + height // 2))
         self._max_dist = max_dist
@@ -239,6 +239,8 @@ class MvTracker(object):
         # Get the rotated rectangles and associated bounding boxes
         bboxes = []
         scores = []
+        r_rects = []
+        cntrs = []
         for i, c in enumerate(contours):
             # Find minimum enveloping rotated rectangle
             r_rect = get_rotated_bbox(c)
@@ -253,6 +255,8 @@ class MvTracker(object):
             # Store all information related to the rotated rectangle for later filtering
             bboxes.append(r_rect.boundingRect())  # In opencv a rectangle is represented by (x, y, w, h)
             scores.append(r_rect.size[0] * r_rect.size[1])
+            r_rects.append(r_rect)
+            cntrs.append(c)
 
         if len(bboxes) != 0:
             # Turn scores and bboxes into numpy arrays for ease of manipulation
@@ -275,45 +279,36 @@ class MvTracker(object):
             centers = np.expand_dims(centers, axis=1)
 
             # Declare the relevant detections
-            detections = [Detection(center) for center in centers]
+            # Store both the bounding box and rotated rectangle for later stabilization of the object
+            detections = [Detection(points=center, data={'bbox': bbox, 'rrect': r_rects[idx], 'cntr': cntrs[idx]}) for idx, center, bbox in zip(indices, centers, bboxes)]
 
             # Update tracker
             tracked_objs = self._tracker.update(detections)
-            for obj in tracked_objs:
+            # TODO: The indice stored in the detection will be available in `tracked_obj.last_detection.data`
+            #for obj in tracked_objs:
                 # Store the absolute velocity
-                if obj.id not in self.abs_vels:
-                    self.abs_vels[obj.id] = deque(maxlen=2)
-                self.abs_vels[obj.id].append(obj.estimate_velocity.squeeze(axis=0))
+                #if obj.id not in self.abs_vels:
+                #    self.abs_vels[obj.id] = deque(maxlen=2)
+                #self.abs_vels[obj.id].append(obj.estimate_velocity.squeeze(axis=0))
 
                 # Store the absolute position
-                if obj.id not in self.abs_pos:
-                    self.abs_pos[obj.id] = deque(maxlen=3)
-                self.abs_pos[obj.id].append(obj.estimate.squeeze(axis=0))
+                #if obj.id not in self.abs_pos:
+                #    self.abs_pos[obj.id] = deque(maxlen=3)
+                #self.abs_pos[obj.id].append(obj.estimate.squeeze(axis=0))
 
                 # If in debug mode display absolute position
-                if self._dbg:
-                    x, y = obj.estimate.squeeze(axis=0).astype(int)
-                    frame = cv.circle(frame, (x, y), 3, (0, 0, 255), -1)
+                #if self._dbg:
+                #    x, y = obj.estimate.squeeze(axis=0).astype(int)
+                #    frame = cv.circle(frame, (x, y), 3, (0, 0, 255), -1)
 
-                # Get the ICR if possible
-                icr = self.get_icr(obj.id)
-                if icr is not None:
-                    self.icrs[obj.id] = icr
+        # If in debug mode, display frame with all information
+        if self._dbg:
+            # Draw exclusion zone
+            frame = cv.circle(frame, self.frame_center.astype(int), int(self._max_dist), (255, 0, 0))
 
-                    # Compute the rotational speed around the icr
-                    old_pos, curr_pos = list(self.abs_pos[obj.id])[1:]
-                    old_rel_pos = cart_to_polar(*(old_pos - icr))
-                    curr_rel_pos = cart_to_polar(*(curr_pos - icr))
-                    self.rel_pos[obj.id] = (old_rel_pos, curr_rel_pos)
-
-            # If in debug mode, display frame with all information
-            if self._dbg:
-                # Draw exclusion zone
-                frame = cv.circle(frame, self.frame_center.astype(int), int(self._max_dist), (255, 0, 0))
-
-                # Blit
-                cv.imshow('Debug', frame)
-                cv.pollKey()
+            # Blit
+            cv.imshow('Debug', frame)
+            cv.pollKey()
 
     def get_icr(self, obj_id):
         """Computes the Instantaneous Center of Rotation based on the object's location in three consecutive frames."""

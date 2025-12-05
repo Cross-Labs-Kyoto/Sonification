@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import cv2 as cv
 from tqdm import tqdm
+import numpy as np
 
 from utils import MvTracker, get_video_meta, VideoIterator
 
@@ -38,15 +39,29 @@ with VideoIterator('Data/test.mov') as vi:
         # Track objects
         tracker.track(frame)
         for obj in tracker.tracked_objects:
-            center = obj.estimate.squeeze(axis=0).astype(int).tolist()
-            cv.circle(frame, center, 2, colors[obj.id%len(colors)][::-1], -1)
+            data = obj.last_detection.data
+            r_rect = data['rrect']
+            bbox = data['bbox']
+            x1, y1 = bbox[0:2]
+            x2, y2 = bbox[0:2] + bbox[2:]
 
-            # Draw Instantaneous Center of Rotation
-            try:
-                icr = tracker.icrs[obj.id].astype(int).tolist()
-                frame = cv.circle(frame, icr, 1, (0, 0, 255), 3)
-            except KeyError:
-                pass
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(vid_w, x2), min(vid_h, y2)
+            # Extract the xenobot
+            xeno = frame[y1:y2, x1:x2, :]
+
+            # Rotate inside of bbox providing size from the rotated rectangle
+            # TODO: See here for rotation: https://docs.opencv.org/4.12.0/da/d6e/tutorial_py_geometric_transformations.html#autotoc_md1365
+            # TODO: RotatedRectangle.size returns a tuple of (width, height)
+            # TODO: RotatedRectangle.center returns a tuple of (x, y)
+            # TODO: RotatedRectangle.angle returns a angle in degrees
+            bbox_center = bbox[:2] + bbox[:2] / 2
+            rot = cv.getRotationMatrix2D(bbox_center, 90 - r_rect.angle, 1)
+            xeno = cv.warpAffine(xeno, rot, np.asarray(r_rect.size, dtype=int))
+            cv.imshow(f'xeno{obj.id}', xeno)
+
+            box = cv.boxPoints(r_rect).astype(int)
+            cv.drawContours(frame, [box], 0, colors[obj.id%len(colors)][::-1], 2)
 
         cv.imshow(win_name, frame)
         cv.pollKey()
